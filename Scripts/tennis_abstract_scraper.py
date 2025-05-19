@@ -8,16 +8,9 @@ url = 'https://www.tennisabstract.com/cgi-bin/tourney.cgi?t=2025-0416/Rome-Maste
 response = requests.get(url)
 soup = BeautifulSoup(response.content, 'html.parser')
 
-table = soup.find('table', id='singles-results')
-
-df = pd.read_html(StringIO(str(table)))
-print(df)
+tables = soup.find_all('table', id='singles-results')
+tables[0]
 
 
-table = soup.find('table', id='singles-results')
-if table is not None:
-    tables = pd.read_html(StringIO(str(table)))
-    df = tables[0]
-    print(df)
-else:
-    print("Table not found.")
+df = pd.read_html(StringIO(str(tables[0])))[0]
+df.rename(columns={'Unnamed: 0': 'Winner', 'Unnamed: 4':'Loser'}, inplace=True)
