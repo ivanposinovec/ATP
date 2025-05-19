@@ -4,13 +4,13 @@ from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import log_loss
 from sklearn.linear_model import LogisticRegressionCV, LogisticRegression
+from sklearn import metrics
+from sklearn.model_selection import StratifiedKFold
+import time
 import statistics
 import tensorflow.keras
-from sklearn import metrics
-import time
 import tensorflow.keras.initializers
 import tensorflow.keras
-from sklearn.model_selection import StratifiedKFold
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Activation, Dropout, InputLayer
 from tensorflow.keras import regularizers
