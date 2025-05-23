@@ -84,8 +84,9 @@ chrome_options = Options()
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
 driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
+scraped_players = list(games_df['Player'].unique()) if len(games_df) > 0 else []
 for index, row in tqdm(players.iterrows(), total=len(players), desc='Getting games'):
-    if row['Player'] not in list(games_df['Player'].unique()):
+    if row['Player'] not in scraped_players:
         try:
             player_url = f'https://www.tennisabstract.com/cgi-bin/player.cgi?p={"".join(row["Player"].split())}&f=A2025qq'
             driver.get(player_url)
