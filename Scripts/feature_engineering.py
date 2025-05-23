@@ -14,10 +14,11 @@ from sklearn.linear_model import LogisticRegressionCV, LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow import keras
+from keras._tf_keras.keras.models import Sequential
+from keras._tf_keras.keras.layers import Dense, Dropout
+from keras._tf_keras.keras.optimizers import Adam
+from keras._tf_keras.keras.callbacks import EarlyStopping
 from sklearn.model_selection import KFold
 from skopt import BayesSearchCV
 from bayes_opt import BayesianOptimization
@@ -406,6 +407,9 @@ games['underdog_bp_faced'] = games.apply(lambda row: row['l_bpFaced'] if row['wi
 games['favored_bp_won'] = games.apply(lambda row: row['w_bpWon'] if row['winner_rank'] < row['loser_rank'] else row['l_bpWon'], axis=1)
 games['underdog_bp_won'] = games.apply(lambda row: row['l_bpWon'] if row['winner_rank'] < row['loser_rank'] else row['w_bpWon'], axis=1)
 
+games['favored_dominance_ratio'] = (games['favored_rtpt_won'] / games['underdog_svpt']) / (games['underdog_rtpt_won'] / games['favored_svpt'])
+games['underdog_dominance_ratio'] = (games['underdog_rtpt_won'] / games['favored_svpt']) / (games['favored_rtpt_won'] / games['underdog_svpt'])
+
 games['favored_max_odds'] = games.apply(lambda row: row['maxw'] if row['winner_rank'] < row['loser_rank'] else row['maxl'], axis=1)
 games['underdog_max_odds'] = games.apply(lambda row: row['maxl'] if row['winner_rank'] < row['loser_rank'] else row['maxw'], axis=1)
 
@@ -427,10 +431,6 @@ games.drop(columns = ['winner_id', 'winner_seed', 'winner_entry', 'winner_name',
         'w_set1', 'l_set1', 'w_set2', 'l_set2', 'w_set3', 'l_set3', 'w_set4', 'l_set4', 'w_set5', 'l_set5', 'w_sets', 'l_sets', 'w_games', 'l_games', 'w_bpWon', 'l_bpWon', 'w_svpt_won', 'l_svpt_won', 'w_rtpt_won', 'l_rtpt_won',
         'winner_rank', 'winner_rank_points', 'loser_rank', 'loser_rank_points', 'winner_elo', 'loser_elo', 'winner_elo_surface', 'loser_elo_surface', 'winner_rank_group', 'loser_rank_group'], inplace=True)
 
-# Performance
-#games['favored_performance'] = (games['favored_sets']-games['underdog_sets']) + 1/6*(games['favored_games']-games['underdog_games']) + 1/24*(games['favored_svpt']-games['underdog_svpt']) + 1/24*((games['underdog_svpt']-games['underdog_1st_won']-games['underdog_2nd_won'])-(games['favored_svpt']-games['favored_1st_won']-games['favored_2nd_won']))
-#games['underdog_performance'] = -games['favored_performance']
-
 # Rank points diff
 games['points_diff'] = games['favored_rank_pts'] - games['underdog_rank_pts']
 games['elo_diff'] = games['favored_elo'] - games['underdog_elo']
@@ -440,8 +440,6 @@ games['log_points_diff'] = np.log(games['favored_rank_pts']) - np.log(games['und
 games['log_elo_diff'] = np.log(games['favored_elo']) - np.log(games['underdog_elo'])
 games['log_elo_surface_diff'] = np.log(games['favored_elo_surface']) - np.log(games['underdog_elo_surface'])
 
-#scaler = MinMaxScaler(feature_range=(-1, 1))
-#games[['favored_performance', 'underdog_performance', 'favored_elo_diff', 'underdog_elo_diff', 'favored_elo_surface_diff', 'underdog_elo_surface_diff']] = scaler.fit_transform(games[['favored_performance', 'underdog_performance', 'favored_elo_diff', 'underdog_elo_diff', 'favored_elo_surface_diff', 'underdog_elo_surface_diff']])
 
 # Surface weighting
 surfaces = ['Hard', 'Grass', 'Clay']
@@ -468,8 +466,8 @@ games.to_csv('games.csv')
 games = pd.read_csv('games.csv')
 games['tourney_date'] = pd.to_datetime(games['tourney_date'])
 games.set_index('Unnamed: 0', inplace=True)
-games = games[games['tourney_level'].isin(['G', 'M', 'O', 'A'])].reset_index(drop=True)
 games['round'] = pd.Categorical(games['round'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
+games = games[games['tourney_level'].isin(['G', 'M', 'O', 'A', 'F'])].reset_index(drop=True)
 
 
 # Create a DataFrame with games based on player and rival
@@ -489,37 +487,11 @@ games_rival_player.drop(columns='rival_win',inplace=True)
 # Combine the original and swapped DataFrames
 full_games = pd.concat([games_player_rival, games_rival_player], ignore_index=True).sort_values(by=['tourney_date', 'tourney_name', 'round', 'game_id']).reset_index(drop=True)
 
-games_to_process = games[(games['season'] >= 2002) & (((games['favored_bet365_odds'].notna()) & (games['underdog_bet365_odds'].notna())) | ((games['favored_pinnacle_odds'].notna()) & (games['underdog_pinnacle_odds'].notna())) | ((games['favored_avg_odds'].notna()) & (games['underdog_avg_odds'].notna())))].copy()
+games_to_process = games[(games['season'] >= 2009) & (games['favored_odds'].notna()) & (games['underdog_odds'].notna())].copy()
 features = pd.DataFrame()
 for index, row in tqdm(games_to_process.iterrows(), total=len(games_to_process)):
-    
-    #favored_as_favored = games[(games['favored'] == row['favored']) & ((games['tourney_date'] < row['tourney_date']) | ((games['tourney_date'] == row['tourney_date']) & (games['round'] < row['round']))) & (games['comment'] == 'Completed')].copy()
-    #favored_as_favored.columns = favored_as_favored.columns.str.replace('favored', 'player', regex=False)
-    #favored_as_favored.columns = favored_as_favored.columns.str.replace('underdog', 'rival', regex=False)
-    #favored_as_favored['win'] = favored_as_favored['player_win'] 
-    
-    #favored_as_underdog = games[(games['underdog'] == row['favored']) & ((games['tourney_date'] < row['tourney_date']) | ((games['tourney_date'] == row['tourney_date']) & (games['round'] < row['round'])))  & (games['comment'] == 'Completed')].copy()
-    #avored_as_underdog.columns = favored_as_underdog.columns.str.replace('favored', 'rival', regex=False)
-    #favored_as_underdog.columns = favored_as_underdog.columns.str.replace('underdog', 'player', regex=False)
-    #favored_as_underdog['win'] = np.where(favored_as_underdog['rival_win'] == 1, 0, 1)
-    #favored_df = pd.concat([favored_as_favored, favored_as_underdog], axis=0).sort_values(by = ['tourney_date', 'round'])
-    
-    #underdog_as_favored = games[(games['favored'] == row['underdog']) & ((games['tourney_date'] < row['tourney_date']) | ((games['tourney_date'] == row['tourney_date']) & (games['round'] < row['round']))) & (games['comment'] == 'Completed')].copy()
-    #underdog_as_favored.columns = underdog_as_favored.columns.str.replace('favored', 'player', regex=False)
-    #underdog_as_favored.columns = underdog_as_favored.columns.str.replace('underdog', 'rival', regex=False)
-    #underdog_as_favored['win'] = underdog_as_favored['player_win'] 
-    
-    #underdog_as_underdog = games[(games['underdog'] == row['underdog']) & ((games['tourney_date'] < row['tourney_date']) | ((games['tourney_date'] == row['tourney_date']) & (games['round'] < row['round']))) & (games['comment'] == 'Completed')].copy()
-    #underdog_as_underdog.columns = underdog_as_underdog.columns.str.replace('favored', 'rival', regex=False)
-    #underdog_as_underdog.columns = underdog_as_underdog.columns.str.replace('underdog', 'player', regex=False)
-    #underdog_as_underdog['win'] = np.where(underdog_as_underdog['rival_win'] == 1, 0, 1)
-    #underdog_df = pd.concat([underdog_as_favored, underdog_as_underdog], axis=0).sort_values(by = ['tourney_date', 'round'])
-    
-    #favored_df = full_games[(full_games['player'] == row['favored']) & ((full_games['tourney_date'] < row['tourney_date']) | ((full_games['tourney_date'] == row['tourney_date']) & (full_games['round'] < row['round']))) & (full_games['comment'] == 'Completed')].copy()
-    #underdog_df = full_games[(full_games['player'] == row['underdog']) & ((full_games['tourney_date'] < row['tourney_date']) | ((full_games['tourney_date'] == row['tourney_date']) & (full_games['round'] < row['round']))) & (full_games['comment'] == 'Completed')].copy()
     favored_df = full_games[(full_games['player'] == row['favored']) & (full_games['tourney_date'] < row['tourney_date']) & (full_games['comment'] == 'Completed')].copy()
     underdog_df = full_games[(full_games['player'] == row['underdog']) & (full_games['tourney_date'] < row['tourney_date']) & (full_games['comment'] == 'Completed')].copy()
-    
     
     # Time weights
     delta = 1.5
@@ -554,11 +526,13 @@ for index, row in tqdm(games_to_process.iterrows(), total=len(games_to_process))
     features.loc[index, 'uncertainty'] = 1/(weights_per_match_favored*weights_per_match_underdog) 
     
     # Fatigue
-    filtered_favored_df = favored_df[(favored_df['tourney_date'] >= row['tourney_date']-timedelta(days=14))]
-    features.loc[index, 'favored_fatigue'] = len(filtered_favored_df)
+    filtered_favored_df = favored_df[(favored_df['tourney_date'] >= row['tourney_date']-timedelta(days=21))]
+    features.loc[index, 'favored_games_fatigue'] = len(filtered_favored_df)
+    features.loc[index, 'favored_minutes_fatigue'] = filtered_favored_df['minutes'].sum()
     
-    filtered_underdog_df = underdog_df[(underdog_df['tourney_date'] >= row['tourney_date']-timedelta(days=14))]
-    features.loc[index, 'underdog_fatigue'] = len(filtered_underdog_df)
+    filtered_underdog_df = underdog_df[(underdog_df['tourney_date'] >= row['tourney_date']-timedelta(days=21))]
+    features.loc[index, 'underdog_games_fatigue'] = len(filtered_underdog_df)
+    features.loc[index, 'underdog_minutes_fatigue'] = filtered_underdog_df['minutes'].sum()
     
     # Inactivity
     filtered_favored_df = favored_df[(favored_df['tourney_date'] < row['tourney_date'])]
@@ -581,6 +555,22 @@ for index, row in tqdm(games_to_process.iterrows(), total=len(games_to_process))
     filtered_underdog_df = underdog_df[(underdog_df['tourney_name'] == row['tourney_name']) & (underdog_df['tourney_date'] < row['tourney_date'])]
     features.loc[index, 'underdog_win_pct_tourney'] = np.dot(filtered_underdog_df['win'], filtered_underdog_df['weight']/sum(filtered_underdog_df['weight']))
     
+    # Distance to max-min-avg elo
+    features.loc[index, 'favored_distance_max_elo'] = row['favored_elo'] - favored_df['player_elo'].max()
+    features.loc[index, 'favored_distance_min_elo'] = row['favored_elo'] - favored_df['player_elo'].min()
+    features.loc[index, 'favored_distance_avg_elo'] = row['favored_elo'] - favored_df['player_elo'].mean()
+    
+    features.loc[index, 'favored_log_distance_max_elo'] = np.log(row['favored_elo']) - np.log(favored_df['player_elo'].max())
+    features.loc[index, 'favored_log_distance_min_elo'] = np.log(row['favored_elo']) - np.log(favored_df['player_elo'].min())
+    features.loc[index, 'favored_log_distance_avg_elo'] = np.log(row['favored_elo']) - np.log(favored_df['player_elo'].mean())
+    
+    features.loc[index, 'underdog_distance_max_elo'] = row['underdog_elo'] - underdog_df['player_elo'].max()
+    features.loc[index, 'underdog_distance_min_elo'] = row['underdog_elo'] - underdog_df['player_elo'].min()
+    features.loc[index, 'underdog_distance_avg_elo'] = row['underdog_elo'] - underdog_df['player_elo'].mean()
+    
+    features.loc[index, 'underdog_log_distance_max_elo'] = np.log(row['underdog_elo']) - np.log(underdog_df['player_elo'].max())
+    features.loc[index, 'underdog_log_distance_min_elo'] = np.log(row['underdog_elo']) - np.log(underdog_df['player_elo'].min())
+    features.loc[index, 'underdog_log_distance_avg_elo'] = np.log(row['underdog_elo']) - np.log(underdog_df['player_elo'].mean())
     
     # Common opponents
     #common_opponents = list(set(favored_df['rival']).intersection(set(underdog_df['rival'])))
@@ -602,6 +592,7 @@ for index, row in tqdm(games_to_process.iterrows(), total=len(games_to_process))
     features.loc[index, 'favored_avg_1st_return_won_pct'] = weighted_average((favored_df['rival_1st_in']-favored_df['rival_1st_won'])/(favored_df['rival_1st_in']), favored_df['weight'])
     features.loc[index, 'favored_avg_2nd_return_won_pct'] = weighted_average((favored_df['rival_svpt']-favored_df['rival_1st_in']-favored_df['rival_2nd_won'])/(favored_df['rival_svpt']-favored_df['rival_1st_in']), favored_df['weight'])
     features.loc[index, 'favored_avg_bp_won_pct'] = weighted_average(((favored_df['player_bp_won'])/(favored_df['rival_bp_faced'])).fillna(0), favored_df['weight'])
+    features.loc[index, 'favored_avg_dominance_ratio'] = weighted_average(favored_df['player_dominance_ratio'], favored_df['weight'])
     
     
     # Underdog features
@@ -619,16 +610,25 @@ for index, row in tqdm(games_to_process.iterrows(), total=len(games_to_process))
     features.loc[index, 'underdog_avg_1st_return_won_pct'] = weighted_average((underdog_df['rival_1st_in']-underdog_df['rival_1st_won'])/(underdog_df['rival_1st_in']), underdog_df['weight'])
     features.loc[index, 'underdog_avg_2nd_return_won_pct'] = weighted_average((underdog_df['rival_svpt']-underdog_df['rival_1st_in']-underdog_df['rival_2nd_won'])/(underdog_df['rival_svpt']-underdog_df['rival_1st_in']), underdog_df['weight'])
     features.loc[index, 'underdog_avg_bp_won_pct'] = weighted_average(((underdog_df['player_bp_won'])/(underdog_df['rival_bp_faced'])).fillna(0), underdog_df['weight'])
+    features.loc[index, 'underdog_avg_dominance_ratio'] = weighted_average(underdog_df['player_dominance_ratio'], underdog_df['weight'])
+
 
 # Serve advantage
 features['favored_serve_adv'] = (features['favored_avg_svpt_won_pct'] - features['underdog_avg_rtpt_won_pct'])
 features['underdog_serve_adv'] = (features['underdog_avg_svpt_won_pct'] - features['favored_avg_rtpt_won_pct'])
 
 # Features differences
-features['fatigue_diff'] = features['favored_fatigue'] - features['underdog_fatigue']
+features['games_fatigue_diff'] = features['favored_games_fatigue'] - features['underdog_games_fatigue']
+features['minutes_fatigue_diff'] = features['favored_minutes_fatigue'] - features['underdog_minutes_fatigue']
 features['inactivity_diff'] = features['favored_inactivity'] - features['underdog_inactivity']
 features['h2h_diff'] = features['favored_win_pct_h2h'] - features['underdog_win_pct_h2h']
 features['win_pct_tourney_diff'] = features['favored_win_pct_tourney'] - features['underdog_win_pct_tourney']
+features['distance_max_elo_diff'] = features['favored_distance_max_elo'] - features['underdog_distance_max_elo'] 
+features['distance_min_elo_diff'] = features['favored_distance_min_elo'] - features['underdog_distance_min_elo'] 
+features['distance_avg_elo_diff'] = features['favored_distance_avg_elo'] - features['underdog_distance_avg_elo'] 
+features['log_distance_max_elo_diff'] = features['favored_log_distance_max_elo'] - features['underdog_log_distance_max_elo'] 
+features['log_distance_min_elo_diff'] = features['favored_log_distance_min_elo'] - features['underdog_log_distance_min_elo'] 
+features['log_distance_avg_elo_diff'] = features['favored_log_distance_avg_elo'] - features['underdog_log_distance_avg_elo'] 
 features['win_pct_diff'] = features['favored_win_pct'] - features['underdog_win_pct']
 features['tpt_won_pct_diff'] = features['favored_avg_tpt_won_pct'] - features['underdog_avg_tpt_won_pct']
 features['svpt_won_pct_diff'] = features['favored_avg_svpt_won_pct'] - features['underdog_avg_svpt_won_pct']
@@ -642,7 +642,15 @@ features['rtpt_won_pct_diff'] = features['favored_avg_rtpt_won_pct'] - features[
 features['1st_return_won_pct_diff'] = features['favored_avg_1st_return_won_pct'] - features['underdog_avg_1st_return_won_pct']
 features['2nd_return_won_pct_diff'] = features['favored_avg_2nd_return_won_pct'] - features['underdog_avg_2nd_return_won_pct']
 features['bp_won_pct_diff'] = features['favored_avg_bp_won_pct'] - features['underdog_avg_bp_won_pct']
+features['dominance_ratio_diff'] = features['favored_avg_dominance_ratio']-features['underdog_avg_dominance_ratio']
 features['serve_adv_diff'] = features['favored_serve_adv'] - features['underdog_serve_adv']
+
+# Inactivity como variable binaria
+features['favored_inactive'] = np.where((features['favored_inactivity'] > 60) | (features['favored_inactivity'].isna()), 1, 0)
+features['underdog_inactive'] = np.where((features['underdog_inactivity'] > 60) | (features['underdog_inactivity'].isna()), 1, 0)
+features['inactive_match'] = np.where((features['favored_inactive'] == 1) & (features['underdog_inactive'] == 1), 3,
+                            np.where((features['favored_inactive'] == 1) & (features['underdog_inactive'] == 0), 2,
+                                    np.where((features['favored_inactive'] == 0) & (features['underdog_inactive'] == 1), 1, 0))).astype(int)
 
 features.to_csv('features.csv')
 
@@ -651,13 +659,12 @@ games = pd.read_csv('games.csv')
 games.set_index('Unnamed: 0', inplace=True)
 games['tourney_date'] = pd.to_datetime(games['tourney_date'])
 games['round'] = pd.Categorical(games['round'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
-games = games[games['tourney_level'].isin(['G', 'M', 'O', 'A'])].reset_index(drop=True)
+games = games[games['tourney_level'].isin(['G', 'M', 'O', 'A', 'F'])].reset_index(drop=True)
 
 features = pd.read_csv('features.csv')
 features = features.set_index('Unnamed: 0')
 
-features_to_keep = list(features.columns)
-features_to_keep = [feature for feature in features.columns if '_diff' in feature] + ['uncertainty']
+features_to_keep = [feature for feature in features.columns if '_diff' in feature] + ['inactive_match', 'uncertainty']
 games = pd.concat([games, features[features_to_keep]], axis=1)
 
 games = games[(games['underdog_odds'] <= 30) & (games['favored_odds'] <= 2)].reset_index(drop=True)
@@ -666,7 +673,6 @@ games['favored_prob_implied'], games['underdog_prob_implied'] = 1 / implied_prob
 
 games['age_diff'] = games['favored_age'] - games['underdog_age']
 games['height_diff'] = games['favored_ht'] - games['underdog_ht']
-
 games['hand_match'] = np.where((games['favored_hand'] == 'R') & (games['underdog_hand'] == 'R'), 3,
                             np.where((games['favored_hand'] == 'R') & (games['underdog_hand'] == 'L'), 2,
                                     np.where((games['favored_hand'] == 'L') & (games['underdog_hand'] == 'R'), 1, 0)))
@@ -683,21 +689,20 @@ games['entry_match'] = np.where((games['favored_entry'].isna()) & (games['underd
                                                         np.where((games['favored_entry'] == 'WC') & (games['underdog_entry'] == 'Q'), 1, 0))))))))
 
 # Feature selection
-features_names = ['season', 'week', 'points_diff', 'elo_diff', 'elo_surface_diff', 'log_points_diff', 'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff'] + features_to_keep
+features_names = ['season', 'week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff'] + features_to_keep
+features_names = [feature for feature in features_names if feature not in ['inactivity_diff', 'inactive_match']]
 games[features_names] = games[features_names].replace([np.inf, -np.inf], np.nan)
 games = games.dropna(subset = ['favored_odds', 'underdog_odds', 'hand_match', 'entry_match'] + features_names).reset_index(drop = True)
 
 # One Hot Encoding
 enc = OneHotEncoder()
-dummies = pd.DataFrame(enc.fit_transform(games[['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match']]).toarray(),
-                    columns = enc.get_feature_names_out(['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match']))
+dummies = pd.DataFrame(enc.fit_transform(games[['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'inactive_match']]).toarray(),
+                    columns = enc.get_feature_names_out(['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'inactive_match']))
 dummies.drop(columns = [dummies.filter(like='series_').columns[-1]] + [dummies.filter(like='surface_').columns[-1]] + [dummies.filter(like='round_').columns[-1]] + [dummies.filter(like='best_of_').columns[-1]] +
-            [dummies.filter(like='hand_match_').columns[-1]] + [dummies.filter(like='entry_match_').columns[-1]], axis = 1, inplace = True)
+            [dummies.filter(like='hand_match_').columns[-1]] + [dummies.filter(like='entry_match_').columns[-1]] + [dummies.filter(like='inactive_match_').columns[-1]], axis = 1, inplace = True)
 dummies_features = dummies.columns.tolist()
 games = pd.concat([games, dummies], axis=1)
 
-threshold = games['uncertainty'].quantile(0.9)
-games = games[games['uncertainty'] <= threshold].reset_index(drop=True)
 
 """
 # Randomly shuffle who is favored and underdog
@@ -716,21 +721,21 @@ for col in games.columns:
     elif col.endswith('_diff'):
         games[col] = np.where(games['shuffle_mask'] == True, -games[col], games[col])
 """
-#games.to_csv('data.csv',index=False)
 
 X = games[features_names+dummies_features]
 y = games['favored_win']
-odds = games[['favored', 'underdog', 'season', 'tourney_full_name', 'tourney_date', 'round', 'favored_win', 'favored_odds', 'underdog_odds', 'favored_max_odds', 'underdog_max_odds', 'favored_prob_implied', 'underdog_prob_implied']].copy()
+odds = games[['favored', 'underdog', 'season', 'tourney_full_name', 'tourney_date', 'round', 'comment', 'favored_win', 'favored_odds', 'underdog_odds', 'favored_max_odds', 'underdog_max_odds', 'favored_prob_implied', 'underdog_prob_implied']].copy()
 
-train_index = games[(games['season'] >= 2004) & (games['season'] < 2016)].index
-val_index = games[(games['season'] >= 2016) & (games['season'] < 2018)].index
-train_val_index = games[(games['season'] >= 2004) & (games['season'] < 2018)].index
-test_index = games[games['season'] >= 2018].index
+train_index = games[(games['season'] >= 2009) & (games['season'] < 2018)].index
+val_index = games[(games['season'] >= 2018) & (games['season'] < 2020)].index
+train_val_index = games[(games['season'] >= 2009) & (games['season'] < 2020)].index
+test_index = games[games['season'] >= 2020].index
 X_train, X_val, X_train_val, X_test = X.loc[train_index], X.loc[val_index], X.loc[train_val_index], X.loc[test_index]
 y_train, y_val, y_train_val, y_test = y.loc[train_index], y.loc[val_index], y.loc[train_val_index], y.loc[test_index]
 odds_train, odds_val, odds_train_val, odds_test = odds.loc[train_index], odds.loc[val_index], odds.loc[train_val_index], odds.loc[test_index]
 
 # Plot distribution of each feature
+"""
 for feature in features_names:
     plt.figure(figsize=(10, 6))
     plt.hist(X_train_val[feature].replace([np.inf, -np.inf], np.nan).dropna(), bins=50, alpha=0.7, color='blue', edgecolor='black')
@@ -739,6 +744,10 @@ for feature in features_names:
     plt.ylabel('Frequency')
     plt.grid(axis='y', alpha=0.75)
     plt.show()
+"""
+
+#uncertainty_threshold = X_train_val['uncertainty'].quantile(0.9)
+#X_train_val[(X_train_val['uncertainty'] <= uncertainty_threshold) & (odds_train_val['comment'] == 'Completed')].index
 
 # High leverage values removal
 features_to_remove_high_leverage = [feature for feature in X_train_val.columns if feature not in dummies_features+['uncertainty']]
@@ -799,6 +808,7 @@ X_val_scaled = pd.concat([X_val[features_not_to_scale], pd.DataFrame(scaler.tran
 X_train_val_scaled = pd.concat([X_train_val[features_not_to_scale], pd.DataFrame(scaler.transform(X_train_val[features_to_scale]), columns = X_train_val[features_to_scale].columns, index = X_train_val.index)], axis = 1)
 X_test_scaled = pd.concat([X_test[features_not_to_scale], pd.DataFrame(scaler.transform(X_test[features_to_scale]), columns = X_train[features_to_scale].columns, index = X_test.index)], axis = 1)
 
+
 #--------------------------------------------------------------------------- Elastic Net ---------------------------------------------------------------------------#
 # Define the search space for Bayesian optimization
 search_space = {
@@ -806,7 +816,7 @@ search_space = {
     'C': (0.1, 5, 'log-uniform')
 }
 
-# Perform Bayesian optimization
+
 opt = BayesSearchCV(
     estimator=LogisticRegression(
         penalty='elasticnet',
@@ -818,7 +828,7 @@ opt = BayesSearchCV(
     search_spaces=search_space,
     n_iter=100,
     scoring='neg_log_loss',
-    cv=3,
+    cv=5,
     random_state=42,
     n_jobs=-1
 )
@@ -842,6 +852,7 @@ coefficients = pd.DataFrame({
 }).sort_values(by='Coefficient', ascending=False)
 print(coefficients)
 selected_features = list(coefficients[coefficients['Coefficient'] != 0]['Feature'])
+
 
 # Log loss
 log_loss_test_results = pd.DataFrame()
@@ -926,6 +937,7 @@ print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['favored_pr
 
 log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = ['XGBoost', log_loss(odds_test["favored_win"].astype(int), odds_test["favored_prob_xgb"])]
 
+
 #<--------------------------------------------------------------------------------------------------------------------------------------------
 # Stacking
 from mlxtend.classifier import StackingCVClassifier
@@ -968,7 +980,7 @@ print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['favored_pr
 print(f"Test Log Loss (Meta Model): {log_loss(odds_test["favored_win"].astype(int), odds_test["favored_prob_meta"]):.5f}")
 
 #<--------------------------------------------------------------------------------------------------------------------------------------------
-# Pinnacle Odds and ML Model
+# Stacking
 from scipy.optimize import minimize
 
 selected_models = ['enet', 'rf', 'nn', 'svm', 'implied']
@@ -1001,7 +1013,6 @@ for train_idx, val_idx in kf.split(X_train_val_meta):
 
 # Store stacked predictions
 odds_train_val['favored_prob_meta'] = oof_preds
-
 
 print(f"Test Log Loss (Meta Model): {log_loss(odds_test["favored_win"].astype(int), odds_test["favored_prob_meta"]):.5f}")
 
@@ -1044,7 +1055,6 @@ under_probs = np.column_stack([
     odds_train_val['underdog_prob_implied']
 ])
 
-
 df_favored = pd.DataFrame({'prop_id':list(range(1,len(y_train)+1)), 'bet_type':'favored', 'result':y_train})
 df_underdog = pd.DataFrame({'prop_id':list(range(1,len(y_train)+1)), 'bet_type':'underdog', 'result':y_train})
 selected_models = ['enet', 'rf', 'nn', 'svm', 'implied']
@@ -1059,7 +1069,6 @@ cl_model = ConditionalLogit(endog = df['y'], exog = df[['probs_'+model_name for 
 cl_fit = cl_model.fit()
 print(cl_fit.summary())
 beta = cl_fit.params
-
 
 over_probs = np.column_stack([
     odds_test['favored_prob_enet'],
@@ -1107,20 +1116,23 @@ print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['2st_favore
 
 log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = [f'{model} & Odds', log_loss(odds_test["favored_win"].astype(int), odds_test["2st_favored_prob"])]
 
+
 # Betting
-expected_return_favored = (odds_test['favored_odds']-1)*odds_test[f'favored_prob_{model}'] - 1*(1-odds_test[f'favored_prob_{model}'])
-expected_return_underdog = (odds_test['underdog_odds']-1)*odds_test[f'underdog_prob_{model}'] - 1*(1-odds_test[f'underdog_prob_{model}'])
+model = 'enet'
+#odds_test = full_odds_test.copy()
+expected_return_favored = (odds_test['favored_max_odds']-1)*odds_test[f'favored_prob_{model}'] - 1*(1-odds_test[f'favored_prob_{model}'])
+expected_return_underdog = (odds_test['underdog_max_odds']-1)*odds_test[f'underdog_prob_{model}'] - 1*(1-odds_test[f'underdog_prob_{model}'])
 odds_test['bet'] = np.where(np.maximum(expected_return_favored, expected_return_underdog) < 0, 'no_bet', np.where(expected_return_favored > expected_return_underdog, 'favored', 'underdog'))
 odds_test['expected_return'] = np.where(odds_test['bet'] == 'no_bet', 0, np.where(expected_return_favored > expected_return_underdog, expected_return_favored, expected_return_underdog))
 
 odds_test['probs'] = np.where(odds_test['bet'] == 'favored', odds_test[f'favored_prob_{model}'], odds_test[f'underdog_prob_{model}'])
-odds_test['odds'] = np.where(odds_test['bet'] == 'favored', odds_test['favored_odds'], odds_test['underdog_odds'])
+odds_test['odds'] = np.where(odds_test['bet'] == 'favored', odds_test['favored_max_odds'], odds_test['underdog_max_odds'])
 
 odds_test['kelly_fraction_fixed'] = kelly_fraction_calc(odds_test['odds'], odds_test['probs']).apply(lambda x: max(x,0))
 
 odds_test['result_kelly_fixed'] = np.where(odds_test['bet'] == 'no_bet', 0,
-                                        np.where((odds_test['bet'] == 'favored') & (odds_test['favored_win']== 1), (odds_test['favored_odds']-1)*odds_test['kelly_fraction_fixed'],
-                                                np.where((odds_test['bet'] == 'underdog') & (odds_test['favored_win']== 0), (odds_test['underdog_odds']-1)*odds_test['kelly_fraction_fixed'],
+                                        np.where((odds_test['bet'] == 'favored') & (odds_test['favored_win']== 1), (odds_test['favored_max_odds']-1)*odds_test['kelly_fraction_fixed'],
+                                                np.where((odds_test['bet'] == 'underdog') & (odds_test['favored_win']== 0), (odds_test['underdog_max_odds']-1)*odds_test['kelly_fraction_fixed'],
                                                         -odds_test['kelly_fraction_fixed'] )))	
 
 total_bets_kelly = len(odds_test)
@@ -1152,8 +1164,7 @@ for index, threshold in enumerate(thresholds):
 print(pd.DataFrame(results_by_threshold))
 
 
-
-bets_results = odds_test[odds_test['expected_return'] > 0.11].copy()
+bets_results = odds_test[odds_test['expected_return'] > 0.1].copy()
 capital = 1
 full_model_capital = pd.DataFrame({'date':pd.to_datetime(bets_results['tourney_date'].iloc[0])-timedelta(days=1), f'capital':capital}, index=[0])
 for date, group in bets_results.groupby('tourney_date'):
