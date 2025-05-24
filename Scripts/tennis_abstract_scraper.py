@@ -151,18 +151,6 @@ games_df['Player'] = games_df['Player'].str.replace('\xa0', ' ', regex=False).st
 games_df['Unnamed: 6'] = games_df['Unnamed: 6'].str.replace('\xa0', ' ', regex=False)
 games_df['Matchup'] = games_df['Unnamed: 6'].str.replace(r'\s*\[.*?\]', '', regex=True).str.strip()
 
-games_df[games_df['Unnamed: 6'] == '(5)Cerundolo d. (Q)Juan Manuel Cerundolo [ARG]'][['Player', 'Unnamed: 6','Matchup']]
-
-def replace_with_full_name(match_string, full_name_string):
-    full_name = full_name_string.split()[1:]
-    words_in_match = re.findall(r'[A-Za-z]+', match_string)
-    name_in_match = list()
-    for word in words_in_match:
-        if word in full_name:
-            name_in_match.append(word)
-    name_in_match = ' '.join(name_in_match)
-    return match_string.replace(name_in_match, full_name_string)
-
 def replace_with_full_name(match_string, full_name_string):
     last_surname = full_name_string.split()[-1].strip()
     players_in_match = match_string.split('d.')
@@ -179,16 +167,12 @@ def replace_with_full_name(match_string, full_name_string):
 
 games_df['Matchup'] = games_df.apply(lambda row: replace_with_full_name(row['Matchup'], row['Player']), axis=1)
 games_df['Matchup'] = games_df['Matchup'].str.replace(r'\s+', ' ', regex=True).str.strip()
-games_df['Matchup'] = games_df['Matchup'].str.replace(r'\[.*?\]', '', regex=True).str.strip()
-
-pattern = r'(?:\((?P<winner_seed>\d+)\))?\s*(?:\((?P<winner_entry>[A-Z]{1,3})\))?\s*(?P<winner_name>[^\d()]+?)\s*d\.\s*(?:\((?P<loser_seed>\d+)\))?\s*(?:\((?P<loser_entry>[A-Z]{1,3})\))?\s*(?P<loser_name>.+)'
-games_df[['winner_seed', 'winner_entry', 'winner_name', 'loser_seed', 'loser_entry', 'loser_name']] = games_df['Matchup'].str.extract(pattern)
-games_df['winner_name'] = games_df['winner_name'].str.replace(r'\s*\[.*?\]', '', regex=True)
-games_df['loser_name'] = games_df['loser_name'].str.replace(r'\s*\[.*?\]', '', regex=True)
 games_df['Matchup'] = games_df['Matchup'].str.replace(r'\(.*?\)', '', regex=True).str.strip()
-games_df['winner_name'] = games_df['winner_name'].str.replace(r'\(.*?\)', '', regex=True).str.strip()
-games_df['loser_name'] = games_df['loser_name'].str.replace(r'\(.*?\)', '', regex=True).str.strip()
 
+games_df[['winner_name', 'loser_name']] = games_df['Matchup'].str.extract(r'^(.*?)\s*d\.\s*(.*)$')
+games_df[['winner_seed', 'winner_entry', 'loser_seed', 'loser_entry']] = games_df['Unnamed: 6'].str.extract(
+    r'(?:\((?P<winner_seed>\d+)\))?\s*(?:\((?P<winner_entry>[A-Z]{1,3})\))?.*d\.\s*(?:\((?P<loser_seed>\d+)\))?\s*(?:\((?P<loser_entry>[A-Z]{1,3})\))?'
+)
 
 def time_to_minutes(t):
         if pd.isna(t):
@@ -223,6 +207,7 @@ game_columns = ['Tournament', 'Rd', 'Surface', 'Date', 'Matchup', 'winner_seed',
 games_merged = pd.merge(winners_df[game_columns+winner_columns], losers_df[['Matchup', 'Tournament', 'Rd']+loser_columns], on=['Matchup', 'Tournament', 'Rd'], how='outer', indicator=False)
 
 games_merged = janitor.clean_names(games_merged)
+games_merged = games_merged.sort_values(by=['date', 'tournament', 'rd', 'matchup']).reset_index(drop=True)
 
 players = pd.read_csv('players.csv')
 games_merged['winner_id'] = games_merged['winner_name'].map(players.set_index('player')['id']).astype(int, errors='ignore')
@@ -261,7 +246,6 @@ games_merged['loser_1st%'] = games_merged['loser_1st%'].str.rstrip('%').astype(f
 games_merged['winner_2nd%'] = games_merged['winner_2nd%'].replace('-', np.nan).str.rstrip('%').astype(float) / 100
 games_merged['loser_2nd%'] = games_merged['loser_2nd%'].replace('-', np.nan).str.rstrip('%').astype(float) / 100
 
-
 games_merged['winner_svpt_1stin'] = round(games_merged['winner_sp']*games_merged['winner_1stin'], 0).astype('Int64')
 games_merged['loser_svpt_1stin'] = round(games_merged['loser_sp']*games_merged['loser_1stin'], 0).astype('Int64')
 
@@ -272,11 +256,11 @@ games_merged['winner_2ndwon'] = round((games_merged['winner_sp']-games_merged['w
 games_merged['loser_2ndwon'] = round((games_merged['loser_sp']-games_merged['loser_svpt_1stin'])*games_merged['loser_2nd%'], 0).astype('Int64')
 
 games_merged.drop(columns = ['matchup', 'time',  'winner_dr', 'winner_a%', 'winner_df%', 'winner_1stin', 'winner_1st%' ,'winner_2nd%', 'winner_tpw', 'winner_rpw', 'winner_tp', 'winner_1sp', 'winner_2sp', 'winner_bpcnv', 'winner_va',
-                            'loser_dr', 'loser_a%', 'loser_df%', 'loser_1stin', 'loser_1st%', 'loser_2nd%',  'loser_tpw', 'loser_rpw', 'loser_tp', 'loser_1sp', 'loser_2sp', 'loser_bpcnv', 'loser_va',
+                            'loser_dr', 'loser_a%', 'loser_df%', 'loser_1stin', 'loser_1st%', 'loser_2nd%', 'loser_tpw', 'loser_rpw', 'loser_tp', 'loser_1sp', 'loser_2sp', 'loser_bpcnv', 'loser_va',
                             'w_set1', 'l_set1', 'w_set2', 'l_set2', 'w_set3', 'l_set3', 'w_set4', 'l_set4', 'w_set5', 'l_set5', 'w_games', 'l_games'], inplace=True)
 games_merged.rename(columns={
     'tournament':'tourney_name', 'rd':'round', 'date':'tourney_date', 'tournament_id':'tourney_id', 'tournament_level':'tourney_level', 
-    'winner_rk':'winner_rank','winner_aces':'w_ace', 'winner_dfs':'w_df', 'winner_sp':'w_svpt', 'winner_1stin':'w_1stIn', 'winner_1stwon':'w_1stWon', 'winner_2ndwon':'w_2ndWon', 'winner_bpsvd':'w_bpSaved', 'winner_bpfcd':'w_bpFaced',
+    'winner_rk':'winner_rank','winner_aces':'w_ace', 'winner_dfs':'w_df', 'winner_sp':'w_svpt', 'winner_svpt_1stin':'w_1stIn', 'winner_1stwon':'w_1stWon', 'winner_2ndwon':'w_2ndWon', 'winner_bpsvd':'w_bpSaved', 'winner_bpfcd':'w_bpFaced',
     'loser_rk':'loser_rank','loser_aces':'l_ace', 'loser_dfs':'l_df', 'loser_sp':'l_svpt', 'loser_svpt_1stin':'l_1stIn', 'loser_1stwon':'l_1stWon', 'loser_2ndwon':'l_2ndWon', 'loser_bpsvd':'l_bpSaved', 'loser_bpfcd':'l_bpFaced',
 }, inplace=True)
 
@@ -284,8 +268,6 @@ games_merged.rename(columns={
 games_merged['tourney_date'] = games_merged['tourney_date'].apply(lambda x: x.strftime('%Y%m%d'))
 games_merged['winner_id'] = games_merged['winner_id'].astype('Int64')
 games_merged['loser_id'] = games_merged['loser_id'].astype('Int64')
-
-
 
 
 test = pd.read_csv('tennis_atp-master/atp_matches_2024.csv')
