@@ -13,6 +13,9 @@ from time import sleep
 from random import random
 from tqdm import tqdm
 import re
+import janitor
+import numpy as np
+from Scripts.functions import *
 
 # Players
 url = 'https://tennisabstract.com/reports/atpRankings.html'
@@ -70,16 +73,18 @@ for tournament in tournaments:
     # Clean Winner and Loser columns to keep only player names
     df['Winner'] = df['Winner'].apply(extract_player_name)
     df['Loser'] = df['Loser'].apply(extract_player_name)
-
 list(df.columns)
 
+
+
+
+# Player games #
 # Missing players
 missing_players = ['Ki Lung Ng', 'Adam Taylor', 'Gillian Osmont', 'Adrian Arcon', 'Heremana Courte', 'Yuttana Charoenphon', 'Natthayut Nithithananont', 'Tim Van Rijthoven', 'Juan Ignacio Centurion Delvalle', 'Gonzalo Ariel Karakachian', 'Yuttana Charoenphon', 'Mick Veldheer', 'Dino Molokova Ferreira', 'Luca Sanchez', 'George Goldhoff', 'Gabriel Roveri Sidney', 'Keerthivassan Suresh', 'Ivan Liutarevich', 'Noah Lopez Cherubino', 'Dhruva Mulye', 'Yusuf Ebrahim Ahmed Abdulla Qaed', 'Elyas Abduljalil', 'Ivan Liutarevich', 'Marco Bortolotti', 'Cheik Pandzou Ekoume', 'Kryce Didier Momo Kassa', 'Nicholas Alan Van Aken', 'Yassine Smiej', 'Guelfo Borghini Baldovinetti', 'Paterne Mamata', 'Mubarak Shannan Zayid', 'Rafael Alfonso De Alba Valdes', 'Niki Kaliyanda Poonacha', 'Abdulrahman Al Janahi', 'Etienne Niyigena', 'Claude Ishimwe', 'Kelsey Stevenson', 'Joshua Muhire', 'Alexander Georg Mandma', 'Christos Glavas', 'Evangelos Kypriotis', 'Denis Istomin', 'Christos Glavas', 'Hendrik Jebens', 'Mark Wallner', 'Mathis Bondaz', 'Federico Gaston Gonzalez Benitez', 'Alex Santino Nunez Vera', 'Tennyson Whiting', 'Diego Bustamante', 'Sergio Ingles Garre', 'Eneko Rios Perez', 'Frane Nincevic', 'Noah Regas Luis', 'Breno Braga', 'Gabriel Roveri Sidney', 'Gustavo Albieri', 'Diego Eloy Mendez Montiel', 'Amine Jamji', 'Izan Corretja', 'Sergio Martos Gornes', 'Ivan Lopez Martos', 'Abdoulaziz Bationo', 'Dino Molokova Ferreira', 'Andre Rodeia', 'Azariah Rusher', 'Abdoulaziz Bationo', 'Zijiang Yang', 'Manuel Lazic', 'Pedro Pinto', 'Luis Guto Miguel', 'Vicente Freda', 'Ivan Liutarevich', 'Bruno Malacarne', 'Juan Esteban Trujillo Hernandez', 'Marcelo Demoliner', 'Dino Molokova Ferreira', 'Alaa Trifi', 'Omar Knani', 'Adam Nagoudi', 'Roko Horvat', 'Matei Todoran']
 players = pd.concat([players, pd.DataFrame({'Player': missing_players})], axis = 0).reset_index(drop=True)
 games_df = pd.DataFrame()
 games_df = pd.read_csv('atp_matches_2025.csv')
 
-# Player games
 chrome_options = Options()
 chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--disable-dev-shm-usage')
@@ -136,12 +141,11 @@ driver.quit()
 games_df.to_csv('atp_matches_2025.csv', index=False)
 
 games_df = pd.read_csv('atp_matches_2025.csv')
-games_df = games_df[(games_df['Date'] < '2025-05-18') & (games_df['Score'] != 'Live Scores') & (~games_df['Tournament'].str.contains('Davis Cup|M15|M25', na=False))].sort_values(['Date', 'Tournament', 'Rd']).reset_index(drop=True)
-games_df['Rd'] = pd.Categorical(games_df['Rd'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
 games_df['Date'] = pd.to_datetime(games_df['Date'].str.replace('‑', '-', regex=False), format='%d-%b-%Y')
+games_df['Rd'] = pd.Categorical(games_df['Rd'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
+games_df = games_df[(games_df['Date'] < '2025-05-18') & (games_df['Score'] != 'Live Scores') & (~games_df['Tournament'].str.contains('Davis Cup|M15|M25', na=False))].sort_values(['Date', 'Tournament', 'Rd']).reset_index(drop=True)
 games_df.drop_duplicates(subset = ['Tournament', 'Rd', 'Date', 'Unnamed: 6', 'Player'], inplace=True)
-
-
+games_df['Tournament'].replace({'Buenos Aires Nautico Hacoaj CH':'Buenos Aires Tigre CH', 'Cuernavaca (Morelos) CH':'Cuernavaca CH'}, inplace=True)
 
 games_df['Player'] = games_df['Player'].str.replace('\xa0', ' ', regex=False).str.replace(r'\s+', ' ', regex=True).str.strip()
 games_df['Unnamed: 6'] = games_df['Unnamed: 6'].str.replace('\xa0', ' ', regex=False)
@@ -186,7 +190,6 @@ games_df['winner_name'] = games_df['winner_name'].str.replace(r'\(.*?\)', '', re
 games_df['loser_name'] = games_df['loser_name'].str.replace(r'\(.*?\)', '', regex=True).str.strip()
 
 
-
 def time_to_minutes(t):
         if pd.isna(t):
             return None
@@ -217,16 +220,74 @@ losers_df = losers_df[~losers_df['Tournament'].str.contains('Davis Cup|M15|M25',
 error_df = games_df[(games_df['Player'] != games_df['winner_name']) & (games_df['Player'] != games_df['loser_name'])]
 
 game_columns = ['Tournament', 'Rd', 'Surface', 'Date', 'Matchup', 'winner_seed', 'winner_entry', 'winner_name', 'loser_seed', 'loser_entry', 'loser_name', 'Score', 'Time', 'Minutes']
-test = pd.merge(winners_df[game_columns+winner_columns], losers_df[['Matchup', 'Tournament', 'Rd']+loser_columns], on=['Matchup', 'Tournament', 'Rd'], how='outer', indicator=True)
+games_merged = pd.merge(winners_df[game_columns+winner_columns], losers_df[['Matchup', 'Tournament', 'Rd']+loser_columns], on=['Matchup', 'Tournament', 'Rd'], how='outer', indicator=False)
+
+games_merged = janitor.clean_names(games_merged)
+
+players = pd.read_csv('players.csv')
+games_merged['winner_id'] = games_merged['winner_name'].map(players.set_index('player')['id']).astype(int, errors='ignore')
+games_merged['winner_ht'] = games_merged['winner_name'].map(players.set_index('player')['height']).astype(int, errors='ignore')
+games_merged['winner_ioc'] = games_merged['winner_name'].map(players.set_index('player')['ioc'])
+
+games_merged['loser_id'] = games_merged['loser_name'].map(players.set_index('player')['id']).astype(int, errors='ignore')
+games_merged['loser_ht'] = games_merged['loser_name'].map(players.set_index('player')['height']).astype(int, errors='ignore')
+games_merged['loser_ioc'] = games_merged['loser_name'].map(players.set_index('player')['ioc'])
+
+season = 2025 
+tournaments = pd.read_csv('tournaments_by_season.csv')
+tournaments = tournaments[tournaments['season'] == season].reset_index(drop=True)
+games_merged['tournament_id'] = games_merged['tournament'].map(tournaments.set_index('tournament_stats')['tourney_id']).apply(lambda x: f'{str(season)}-{int(x)}' if pd.notna(x) else np.nan)
+games_merged['draw_size'] = games_merged['tournament'].map(tournaments.set_index('tournament_stats')['draw_size']).astype(int, errors='ignore')
+games_merged['tournament_level'] = games_merged['tournament'].map(tournaments.set_index('tournament_stats')['tourney_level'])
+games_merged['best_of'] = games_merged['tournament'].map(tournaments.set_index('tournament_stats')['best_of']).astype(int, errors='ignore')
+
+games_merged[['winner_bpsvd', 'winner_bpfcd']] = games_merged['winner_bpsvd'].str.split('/', expand=True)
+games_merged[['loser_bpsvd', 'loser_bpfcd']] = games_merged['loser_bpsvd'].str.split('/', expand=True)
+
+games_merged[['w_set1', 'l_set1', 'w_set2', 'l_set2', 'w_set3', 'l_set3', 'w_set4', 'l_set4', 'w_set5', 'l_set5']] = games_merged['score'].apply(lambda x: pd.Series(parse_score(x)))
+games_merged['w_games'] = games_merged[['w_set1', 'w_set2', 'w_set3', 'w_set4', 'w_set5']].fillna(0).sum(axis=1)
+games_merged['l_games'] = games_merged[['l_set1', 'l_set2', 'l_set3', 'l_set4', 'l_set5']].fillna(0).sum(axis=1)
+
+for index, row in tqdm(games_merged.iterrows(), total = len(games_merged)):
+    games_merged.at[index, 'w_SvGms'] = np.ceil((row['w_games'] + row['l_games']) / 2)
+    games_merged.at[index, 'l_SvGms'] = np.floor((row['w_games'] + row['l_games']) / 2)
+
+games_merged['winner_1stin'] = games_merged['winner_1stin'].str.rstrip('%').astype(float) / 100
+games_merged['loser_1stin'] = games_merged['loser_1stin'].str.rstrip('%').astype(float) / 100
+
+games_merged['winner_1st%'] = games_merged['winner_1st%'].str.rstrip('%').astype(float) / 100
+games_merged['loser_1st%'] = games_merged['loser_1st%'].str.rstrip('%').astype(float) / 100
+
+games_merged['winner_2nd%'] = games_merged['winner_2nd%'].replace('-', np.nan).str.rstrip('%').astype(float) / 100
+games_merged['loser_2nd%'] = games_merged['loser_2nd%'].replace('-', np.nan).str.rstrip('%').astype(float) / 100
+
+
+games_merged['winner_svpt_1stin'] = round(games_merged['winner_sp']*games_merged['winner_1stin'], 0).astype('Int64')
+games_merged['loser_svpt_1stin'] = round(games_merged['loser_sp']*games_merged['loser_1stin'], 0).astype('Int64')
+
+games_merged['winner_1stwon'] = round(games_merged['winner_svpt_1stin']*games_merged['winner_1st%'], 0).astype('Int64')
+games_merged['loser_1stwon'] = round(games_merged['loser_svpt_1stin']*games_merged['loser_1st%'], 0).astype('Int64')
+
+games_merged['winner_2ndwon'] = round((games_merged['winner_sp']-games_merged['winner_svpt_1stin'])*games_merged['winner_2nd%'], 0).astype('Int64')
+games_merged['loser_2ndwon'] = round((games_merged['loser_sp']-games_merged['loser_svpt_1stin'])*games_merged['loser_2nd%'], 0).astype('Int64')
+
+games_merged.drop(columns = ['matchup', 'time',  'winner_dr', 'winner_a%', 'winner_df%', 'winner_1stin', 'winner_1st%' ,'winner_2nd%', 'winner_tpw', 'winner_rpw', 'winner_tp', 'winner_1sp', 'winner_2sp', 'winner_bpcnv', 'winner_va',
+                            'loser_dr', 'loser_a%', 'loser_df%', 'loser_1stin', 'loser_1st%', 'loser_2nd%',  'loser_tpw', 'loser_rpw', 'loser_tp', 'loser_1sp', 'loser_2sp', 'loser_bpcnv', 'loser_va',
+                            'w_set1', 'l_set1', 'w_set2', 'l_set2', 'w_set3', 'l_set3', 'w_set4', 'l_set4', 'w_set5', 'l_set5', 'w_games', 'l_games'], inplace=True)
+games_merged.rename(columns={
+    'tournament':'tourney_name', 'rd':'round', 'date':'tourney_date', 'tournament_id':'tourney_id', 'tournament_level':'tourney_level', 
+    'winner_rk':'winner_rank','winner_aces':'w_ace', 'winner_dfs':'w_df', 'winner_sp':'w_svpt', 'winner_1stin':'w_1stIn', 'winner_1stwon':'w_1stWon', 'winner_2ndwon':'w_2ndWon', 'winner_bpsvd':'w_bpSaved', 'winner_bpfcd':'w_bpFaced',
+    'loser_rk':'loser_rank','loser_aces':'l_ace', 'loser_dfs':'l_df', 'loser_sp':'l_svpt', 'loser_svpt_1stin':'l_1stIn', 'loser_1stwon':'l_1stWon', 'loser_2ndwon':'l_2ndWon', 'loser_bpsvd':'l_bpSaved', 'loser_bpfcd':'l_bpFaced',
+}, inplace=True)
+
+# dtypes combine
+games_merged['tourney_date'] = games_merged['tourney_date'].apply(lambda x: x.strftime('%Y%m%d'))
+games_merged['winner_id'] = games_merged['winner_id'].astype('Int64')
+games_merged['loser_id'] = games_merged['loser_id'].astype('Int64')
 
 
 
-test[(test['_merge']== 'left_only')][['Matchup', 'winner_name', 'loser_name']].sort_values(by='loser_name')
 
-test.to_csv('test.csv', index=False)
+test = pd.read_csv('tennis_atp-master/atp_matches_2024.csv')
 
-
-
-
-
-games_df = games_df[~games_df['Tournament'].str.contains('Davis Cup|M15|M25', na=False)]
+pd.concat([test, games_merged], axis = 0).to_csv('test.csv', index=False)

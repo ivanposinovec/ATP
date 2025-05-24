@@ -47,20 +47,49 @@ tournaments_by_season = pd.merge(tournaments_by_season, tournaments[['tournament
 
 tournaments_by_season = tournaments_by_season[['tournament_odds', 'tournament_stats', 'series', 'season']].sort_values(by = ['series', 'tournament_stats', 'season']).reset_index(drop=True)
 tournaments_by_season.to_csv('tournaments_by_season.csv', index=False)
+"""
+
+"""
 tournaments_by_season = pd.read_csv('tournaments_by_season.csv')
+tournaments_by_season = tournaments_by_season.sort_values(by = ['series', 'tournament_stats', 'season']).reset_index(drop=True)
 
+seasons = list(range(1978, 2025))
+games = pd.DataFrame()
+for season in seasons:
+    df = pd.concat([pd.read_csv(f'tennis_atp-master/atp_matches_{season}.csv'),pd.read_csv(f'tennis_atp-master/atp_matches_qual_chall_{season}.csv')],axis = 0).reset_index(drop=True)
+    df.insert(0, 'season', season)
+    df.loc[df['tourney_name'].str.contains(' Olympics', na=False), 'tourney_level'] = 'O'
+    
+    games = pd.concat([games, df], axis = 0).reset_index(drop=True)
 
-tournaments_by_season = tournaments_by_season[['tournament_odds', 'tournament_stats', 'series', 'season']].sort_values(by = ['series', 'tournament_stats', 'season']).reset_index(drop=True)
-tournaments_by_season.to_csv('tournaments_by_season.csv', index=False)
-
-tournaments_stats_by_season = games[['tourney_name', 'tourney_level', 'season']].drop_duplicates(subset = ['tourney_name', 'season'])
+games['tourney_id'] = games['tourney_id'].apply(lambda x: x.split('-')[1])
+tournaments_stats_by_season = games[['tourney_name', 'tourney_level', 'season', 'tourney_id', 'draw_size', 'tourney_level', 'best_of']].drop_duplicates(subset = ['tourney_name', 'season'])
 tournaments_stats_by_season = tournaments_stats_by_season[(tournaments_stats_by_season['season'] >= 1990) & (~tournaments_stats_by_season['tourney_level'].isin(['D']))].reset_index(drop=True)
 tournaments_stats_by_season.rename(columns={'tourney_name':'tournament_stats'},inplace=True)
 tournaments_stats_by_season['series'] = tournaments_stats_by_season['tournament_stats'].apply(lambda x: 'Challenger' if 'CH' in x else ('Masters 1000' if 'Masters' in x else None))
-list(tournaments_stats_by_season['tournament_stats'].unique())
 
 tournaments_by_season = pd.concat([tournaments_by_season, tournaments_stats_by_season[['tournament_stats', 'series', 'season']]],axis = 0).drop_duplicates(subset=['tournament_stats', 'season'])
 tournaments_by_season.to_csv('tournaments_by_season2.csv', index=False)
+"""
+
+""" 
+tournaments_by_season = pd.read_csv('tournaments_by_season.csv')
+tournaments_by_season = tournaments_by_season.sort_values(by = ['series', 'tournament_stats', 'season']).reset_index(drop=True)
+
+seasons = list(range(1978, 2025))
+games = pd.DataFrame()
+for season in seasons:
+    df = pd.concat([pd.read_csv(f'tennis_atp-master/atp_matches_{season}.csv'),pd.read_csv(f'tennis_atp-master/atp_matches_qual_chall_{season}.csv')],axis = 0).reset_index(drop=True)
+    df.insert(0, 'season', season)
+    df.loc[df['tourney_name'].str.contains(' Olympics', na=False), 'tourney_level'] = 'O'
+    
+    games = pd.concat([games, df], axis = 0).reset_index(drop=True)
+
+games['tourney_id'] = games['tourney_id'].apply(lambda x: x.split('-')[1])
+games['best_of'] = games['best_of'].astype(int)
+tournaments_stats_by_season = games[['tourney_date', 'tourney_name', 'tourney_level', 'season', 'tourney_id', 'draw_size', 'best_of']].drop_duplicates(subset = ['tourney_name', 'season'])
+tournaments_stats_by_season.rename(columns={'tourney_name':'tournament_stats'},inplace=True)
+pd.merge(tournaments_by_season, tournaments_stats_by_season, on = ['tournament_stats', 'season'], how = 'left').sort_values(by = ['tournament_stats', 'season']).to_csv('tournaments_by_season2.csv', index=False)
 """
 
 
@@ -103,6 +132,10 @@ for index, row in tqdm(games.iterrows(), total = len(games)):
         games.loc[index, 'loser'] = 'Zhang Ze.'
     elif row['loser_name'] == 'Zhizhen Zhang':
         games.loc[index, 'loser'] = 'Zhang Zh.'
+
+# Save Players data
+players = games.drop_duplicates(subset = 'loser_name')[['loser_name', 'loser_id', 'loser_hand', 'loser_ht', 'loser_ioc']].rename(columns={'loser_name':'player', 'loser_id':'id', 'loser_hand':'hand', 'loser_ht':'height', 'loser_ioc':'ioc'})
+players.to_csv('players.csv', index= False)
 
 tournaments = pd.read_csv('tournaments_by_season.csv')
 

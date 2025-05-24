@@ -15,20 +15,25 @@ import json
 
 games = pd.read_csv('games_oddsportal.csv')
 
-with open('odds_data2.json', 'r') as json_file:
+with open('odds_data.json', 'r') as json_file:
     odds_data = json.load(json_file)
+print(f'--Lenght odds_data {len(odds_data)}--')
 
 chrome_options = webdriver.ChromeOptions()
-#user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-#chrome_options.add_argument(f"--user-agent={user_agent}")
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
 count = 0
 games_to_scrape = games[(~games['game_url'].isin([game['game_url'] for game in odds_data]) )& (games['game_url'].notnull()) & (~games['comment'].isin(['canc.', 'w.o.', 'award.']))]
+odds_data_current_session = []
 for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape)):
     if row['comment'] not in ['canc.', 'w.o.', 'award.'] and row['game_url'] is not None:
         try:
+            if count % 50 == 0:
+                if 'driver' in locals():
+                    driver.quit()
+                driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+            
             row_dict = row.to_dict()
             url = f'https://www.oddsportal.com{row["game_url"]}'
             driver.get(url)
@@ -81,19 +86,25 @@ for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape))
                     odds_dict[f'clossing_odds{i}'] = american_odds_conversor(float(closing_odd)) if closing_odd and (float(closing_odd) > 100 or float(closing_odd) < -100) and closing_odd is not None else closing_odd
                 bookmakers_odds.append(odds_dict)
             row_dict['odds'] = bookmakers_odds
-            odds_data.append(row_dict)
+            odds_data_current_session.append(row_dict)
         except Exception as e:
             print(f"Error on {url}: {e}")
         sleep(1+random())
         
         count += 1
-        print(count)
         if count % 100 == 0:
-            with open('odds_data2.json', 'w') as json_file:
+            with open('odds_data.json', 'r') as json_file:
+                odds_data = json.load(json_file)
+            
+            odds_data = odds_data+odds_data_current_session
+            print(f'--Lenght odds_data{len(odds_data)}--')
+            
+            with open('odds_data.json', 'w') as json_file:
                 json.dump(odds_data, json_file, indent=4, default=str)
+            odds_data_current_session = []
             print(f"Saved {count} games to odds_data2.json")
 driver.quit()
 
-with open('odds_data2.json', 'w') as json_file:
+with open('odds_data.json', 'w') as json_file:
     json.dump(odds_data, json_file, indent=4, default=str)
 
