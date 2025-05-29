@@ -25,59 +25,6 @@ soup = BeautifulSoup(response.content, 'html.parser')
 tables = soup.find_all('table', id='reportable')
 players = pd.read_html(StringIO(str(tables[0])))[0]
 
-
-# Tournaments
-tournaments = []
-chrome_options = Options()
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-driver = webdriver.Chrome(options=chrome_options)
-for index, row in tqdm(players.head(500).iterrows(), total=len(500), desc='Getting games'):
-    player_url = f'https://www.tennisabstract.com/cgi-bin/player.cgi?p={"".join(row["Player"].split())}&f=A2025qq'
-    driver.get(player_url)
-    sleep(2 + random())
-    response_content = driver.page_source
-    soup = BeautifulSoup(response_content, 'html.parser')
-    
-    table = soup.find('table', id='matches')
-    
-    if table is not None:
-        if len(table) > 0:
-            player_games_df = pd.read_html(StringIO(str(table)))[0]
-            player_games_df = player_games_df.iloc[:-1]
-            tournament_list = list(player_games_df['Tournament'].unique())
-            for tournament in tournament_list:
-                if tournament not in tournaments:
-                    tournaments.append(tournament)
-                    print(f'Added tournament: {tournament}')
-    sleep(2 + random())
-driver.quit()
-tournaments = [t for t in tournaments if 'Davis Cup' not in t and 'M15' not in t and 'M25' not in t]
-
-# Games 
-def extract_player_name(s):
-    return re.sub(r'\s*\(.*?\)|\s*\[.*?\]', '', str(s)).strip().split('|')[0].strip()
-for tournament in tournaments:
-    url = f'https://www.tennisabstract.com/cgi-bin/tourney.cgi?t=2025{"_".join(tournament.split())}'
-    
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    table = soup.find_all('table', id='singles-results')
-    
-    df = pd.read_html(StringIO(str(table)))[0]
-    df.rename(columns={'Unnamed: 2':'Winner', 'Unnamed: 5':'Loser'}, inplace=True)
-    df.drop(columns=['Unnamed: 3'], inplace=True)
-    
-    # Clean Winner and Loser columns to keep only player names
-    df['Winner'] = df['Winner'].apply(extract_player_name)
-    df['Loser'] = df['Loser'].apply(extract_player_name)
-list(df.columns)
-
-
-
-
 # Player games #
 # Missing players
 missing_players = ['Ki Lung Ng', 'Adam Taylor', 'Gillian Osmont', 'Adrian Arcon', 'Heremana Courte', 'Yuttana Charoenphon', 'Natthayut Nithithananont', 'Tim Van Rijthoven', 'Juan Ignacio Centurion Delvalle', 'Gonzalo Ariel Karakachian', 'Yuttana Charoenphon', 'Mick Veldheer', 'Dino Molokova Ferreira', 'Luca Sanchez', 'George Goldhoff', 'Gabriel Roveri Sidney', 'Keerthivassan Suresh', 'Ivan Liutarevich', 'Noah Lopez Cherubino', 'Dhruva Mulye', 'Yusuf Ebrahim Ahmed Abdulla Qaed', 'Elyas Abduljalil', 'Ivan Liutarevich', 'Marco Bortolotti', 'Cheik Pandzou Ekoume', 'Kryce Didier Momo Kassa', 'Nicholas Alan Van Aken', 'Yassine Smiej', 'Guelfo Borghini Baldovinetti', 'Paterne Mamata', 'Mubarak Shannan Zayid', 'Rafael Alfonso De Alba Valdes', 'Niki Kaliyanda Poonacha', 'Abdulrahman Al Janahi', 'Etienne Niyigena', 'Claude Ishimwe', 'Kelsey Stevenson', 'Joshua Muhire', 'Alexander Georg Mandma', 'Christos Glavas', 'Evangelos Kypriotis', 'Denis Istomin', 'Christos Glavas', 'Hendrik Jebens', 'Mark Wallner', 'Mathis Bondaz', 'Federico Gaston Gonzalez Benitez', 'Alex Santino Nunez Vera', 'Tennyson Whiting', 'Diego Bustamante', 'Sergio Ingles Garre', 'Eneko Rios Perez', 'Frane Nincevic', 'Noah Regas Luis', 'Breno Braga', 'Gabriel Roveri Sidney', 'Gustavo Albieri', 'Diego Eloy Mendez Montiel', 'Amine Jamji', 'Izan Corretja', 'Sergio Martos Gornes', 'Ivan Lopez Martos', 'Abdoulaziz Bationo', 'Dino Molokova Ferreira', 'Andre Rodeia', 'Azariah Rusher', 'Abdoulaziz Bationo', 'Zijiang Yang', 'Manuel Lazic', 'Pedro Pinto', 'Luis Guto Miguel', 'Vicente Freda', 'Ivan Liutarevich', 'Bruno Malacarne', 'Juan Esteban Trujillo Hernandez', 'Marcelo Demoliner', 'Dino Molokova Ferreira', 'Alaa Trifi', 'Omar Knani', 'Adam Nagoudi', 'Roko Horvat', 'Matei Todoran']
@@ -151,19 +98,6 @@ games_df['Player'] = games_df['Player'].str.replace('\xa0', ' ', regex=False).st
 games_df['Unnamed: 6'] = games_df['Unnamed: 6'].str.replace('\xa0', ' ', regex=False)
 games_df['Matchup'] = games_df['Unnamed: 6'].str.replace(r'\s*\[.*?\]', '', regex=True).str.strip()
 
-def replace_with_full_name(match_string, full_name_string):
-    last_surname = full_name_string.split()[-1].strip()
-    players_in_match = match_string.split('d.')
-    players_in_match = [word.strip() for word in players_in_match]
-    
-    surname_in_player = list()
-    for player in players_in_match:
-        words_in_player = re.findall(r'[A-Za-z]+', player)
-        if last_surname in words_in_player:
-            surname_in_player.append(player)
-    
-    name_in_match = min(surname_in_player, key=lambda x: len(x.split()))
-    return match_string.replace(name_in_match, full_name_string)
 
 games_df['Matchup'] = games_df.apply(lambda row: replace_with_full_name(row['Matchup'], row['Player']), axis=1)
 games_df['Matchup'] = games_df['Matchup'].str.replace(r'\s+', ' ', regex=True).str.strip()
@@ -174,14 +108,6 @@ games_df[['winner_seed', 'winner_entry', 'loser_seed', 'loser_entry']] = games_d
     r'(?:\((?P<winner_seed>\d+)\))?\s*(?:\((?P<winner_entry>[A-Z]{1,3})\))?.*d\.\s*(?:\((?P<loser_seed>\d+)\))?\s*(?:\((?P<loser_entry>[A-Z]{1,3})\))?'
 )
 
-def time_to_minutes(t):
-        if pd.isna(t):
-            return None
-        parts = str(t).split(':')
-        if len(parts) == 2:
-            return int(parts[0]) * 60 + int(parts[1])
-        else:
-            return None
 games_df['Minutes'] = games_df['Time'].apply(time_to_minutes)
 games_df['Birthdate'] = pd.to_datetime(games_df['Birthdate'], format='%Y-%m-%d')
 games_df['Age'] = round((games_df['Date'] - games_df['Birthdate']).dt.days / 365, 1)
@@ -269,6 +195,8 @@ games_merged['tourney_date'] = games_merged['tourney_date'].apply(lambda x: x.st
 games_merged['winner_id'] = games_merged['winner_id'].astype('Int64')
 games_merged['loser_id'] = games_merged['loser_id'].astype('Int64')
 
+
+games_merged.to_csv('tennis_atp-master/atp_matches_2025.csv', index=False)
 
 test = pd.read_csv('tennis_atp-master/atp_matches_2024.csv')
 

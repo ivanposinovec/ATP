@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import math
 from statsmodels.discrete.conditional_models import ConditionalLogit
+import re
 
 def dump(obj,name):
 	pickle.dump(obj,open(name+'.p',"wb")) 
@@ -67,6 +68,29 @@ def parse_score(score):
     else:
         return [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan]
 
+
+def replace_with_full_name(match_string, full_name_string):
+    last_surname = full_name_string.split()[-1].strip()
+    players_in_match = match_string.split('d.')
+    players_in_match = [word.strip() for word in players_in_match]
+    
+    surname_in_player = list()
+    for player in players_in_match:
+        words_in_player = re.findall(r'[A-Za-z]+', player)
+        if last_surname in words_in_player:
+            surname_in_player.append(player)
+    
+    name_in_match = min(surname_in_player, key=lambda x: len(x.split()))
+    return match_string.replace(name_in_match, full_name_string)
+
+def time_to_minutes(t):
+        if pd.isna(t):
+            return None
+        parts = str(t).split(':')
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        else:
+            return None
 
 def rank_group(rank):
     if rank <= 10:

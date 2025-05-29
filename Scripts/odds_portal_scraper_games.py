@@ -13,18 +13,19 @@ from tqdm import tqdm
 from functions import *
 import json
 
-games = pd.read_csv('games_oddsportal.csv')
+games = pd.read_csv('games_oddsportal2.csv')
 
 with open('odds_data.json', 'r') as json_file:
     odds_data = json.load(json_file)
 print(f'--Lenght odds_data {len(odds_data)}--')
+
+games_to_scrape = games[(~games['game_url'].isin([game['game_url'] for game in odds_data])) & (games['game_url'].notnull()) & (~games['comment'].isin(['canc.', 'w.o.', 'award.']))]
 
 chrome_options = webdriver.ChromeOptions()
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--no-sandbox')
 driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
 count = 0
-games_to_scrape = games[(~games['game_url'].isin([game['game_url'] for game in odds_data]) )& (games['game_url'].notnull()) & (~games['comment'].isin(['canc.', 'w.o.', 'award.']))]
 odds_data_current_session = []
 for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape)):
     if row['comment'] not in ['canc.', 'w.o.', 'award.'] and row['game_url'] is not None:
@@ -89,7 +90,7 @@ for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape))
             odds_data_current_session.append(row_dict)
         except Exception as e:
             print(f"Error on {url}: {e}")
-        sleep(1+random())
+        sleep(0.5+random())
         
         count += 1
         if count % 100 == 0:
@@ -105,6 +106,41 @@ for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape))
             print(f"Saved {count} games to odds_data2.json")
 driver.quit()
 
+
+odds_data = odds_data+odds_data_current_session
 with open('odds_data.json', 'w') as json_file:
     json.dump(odds_data, json_file, indent=4, default=str)
 
+
+"""
+#games = games[(~games['game_url'].str.startswith('/tennis/switzerland/atp-geneva/')) & (~games['game_url'].str.startswith('/tennis/italy/atp-rome/')) & (~games['game_url'].str.startswith('/tennis/germany/atp-hamburg/'))
+        # & (~games['game_url'].str.startswith('/tennis/france/atp-french-open/')) & (~games['game_url'].str.startswith('/tennis/serbia/atp-belgrade-2/')) & (~games['game_url'].str.startswith('/tennis/serbia/atp-belgrade/'))].reset_index(drop=True)
+
+with open('odds_data.json', 'r') as json_file:
+    odds_data = json.load(json_file)
+
+df = pd.DataFrame(odds_data)
+df = df.explode('odds').reset_index(drop=True)
+odds_expanded = pd.json_normalize(df['odds'])
+expanded_df = pd.concat([df.drop(columns='odds').reset_index(drop=True), odds_expanded.reset_index(drop=True)], axis=1)
+
+with open('odds_data3.json', 'r') as json_file:
+    odds_data3 = json.load(json_file)
+
+df3 = pd.DataFrame(odds_data3)
+df3 = df3.explode('odds').reset_index(drop=True)
+odds_expanded = pd.json_normalize(df3['odds'])
+expanded_df3 = pd.concat([df3.drop(columns='odds').reset_index(drop=True), odds_expanded.reset_index(drop=True)], axis=1)
+
+
+full_df = pd.concat([pd.DataFrame(odds_data), pd.DataFrame(odds_data3)], ignore_index=True)
+full_df.drop_duplicates(subset=['game_url'])
+
+full_df = pd.concat([expanded_df, expanded_df3], ignore_index=True)
+full_df.drop_duplicates(subset=['game_url', 'bookmaker'])
+
+combined_odds_data = odds_data + odds_data3
+combined_odds_data = list({item['game_url']: item for item in combined_odds_data if 'game_url' in item}.values())
+with open('odds_data.json', 'w') as json_file:
+    json.dump(combined_odds_data, json_file, indent=4, default=str)
+"""

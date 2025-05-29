@@ -21,8 +21,6 @@ options.add_argument("--headless")
 driver = webdriver.Chrome(options=options)
 
 driver.get(url)
-
-# Scroll down to fully load the page
 last_height = driver.execute_script("return document.body.scrollHeight")
 while True:
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -33,7 +31,6 @@ while True:
     last_height = new_height
 
 html = driver.page_source
-
 driver.quit()
 
 soup = BeautifulSoup(html, 'html.parser')
@@ -58,39 +55,67 @@ tournaments_df = tournaments_df.drop_duplicates(subset=['tournament'])
 tournaments_df_old = pd.read_csv('tournaments_by_season.csv')
 tournaments_df_old = tournaments_df_old[tournaments_df_old['season'] >= 2009].reset_index(drop=True)
 tournaments_df_old = tournaments_df_old.drop_duplicates(subset=['tournament_stats', 'season'])
-
-
 tournaments_df_old['tournament_stats'] = tournaments_df_old['tournament_stats'].apply(lambda x: x.replace('Masters','').strip()).replace({'Adelaide 1': 'Adelaide', 'Cologne 1': 'Cologne',
                                                                                                                                 'Great Ocean Road Open':'Melbourne (Great Ocean Road Open)',
-                                                                                                                                'Melbourne':'Melbourne (Summer Set)',
-                                                                                                                                'Murray River Open':'Melbourne (Murray River Open)', 'Naples':'Napoli',
-                                                                                                                                'Nur-Sultan':'Astana', "Queen's Club":'London',
+                                                                                                                                'Melbourne':'Melbourne (Summer Set)', 'Nur-Sultan':'Astana',
+                                                                                                                                'Murray River Open':'Melbourne (Murray River Open)', 'Naples':'Napoli', "Queen's Club":'London',
                                                                                                                                 'ATP Rio de Janeiro':'Rio de Janeiro', 'Rio De Janeiro':'Rio de Janeiro',
                                                                                                                                 'Roland Garros':'French Open', 's Hertogenbosch':'Hertogenbosch',
                                                                                                                                 'St Petersburg':'St. Petersburg', 'Us Open': 'US Open',
-                                                                                                                                'Tour Finals':'Finals - Turin'})
+                                                                                                                                'Tour Finals':'Finals - Turin','Doha Aus Open Qualies':'Australian Open',
+                                                                                                                                'Next Gen Finals':'Next Gen Finals - Jeddah',
+                                                                                                                                'NextGen Finals':'Next Gen Finals - Jeddah',
+                                                                                                                                'London Olympics':'Olympic Games', 'Paris Olympics':'Olympic Games',
+                                                                                                                                'Rio Olympics':'Olympic Games', 'Tokyo Olympics':'Olympic Games'})
 tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
 lambda x: x['tournament_stats'].replace('Canada', 'Montreal') if x['season'] in [2009, 2011, 2013, 2015, 2017, 2019, 2022, 2024] 
 else x['tournament_stats'].replace('Canada', 'Toronto'), axis=1
 )
-tournaments_df_old['tournament'] = 'ATP '+ tournaments_df_old['tournament_stats']
+tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
+lambda x: x['tournament_stats'].replace('Belgrade', 'Belgrade 2') if x['season'] in [2024] 
+else x['tournament_stats'], axis=1
+)
+tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
+lambda x: x['tournament_stats'].replace('Lyon', 'Lyon 2') if x['season'] in [2008, 2009] 
+else x['tournament_stats'], axis=1
+)
+tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
+lambda x: x['tournament_stats'].replace('Santiago', 'Vina del Mar') if x['season'] in [2012, 2013] 
+else x['tournament_stats'], axis=1
+)
+tournaments_df_old['tournament'] = 'ATP ' + tournaments_df_old['tournament_stats']
 
-tournaments_final = pd.merge(tournaments_df_old, tournaments_df, how='left', on='tournament').sort_values(by=['tournament', 'season']).reset_index(drop=True)
+tournaments_final = pd.merge(tournaments_df_old[(tournaments_df_old['season'] >= 2009) & (tournaments_df_old['series'] != 'Challenger')], tournaments_df, how='left', on='tournament').sort_values(by=['tournament', 'season']).reset_index(drop=True)
 tournaments_final['last_edition'] = ~tournaments_final.duplicated(subset=['tournament'], keep='last')
+
+tournaments_final.loc[(tournaments_final['season'].isin([2013, 2014])) & (tournaments_final['tournament_stats'] == 'Estoril'), 'url'] = '/tennis/portugal/atp-oeiras/results/'
+tournaments_final.loc[(tournaments_final['season'].isin([2020, 2021])) & (tournaments_final['tournament_stats'] == 'Astana'), 'url'] = '/tennis/kazakhstan/atp-nur-sultan/results/'
+tournaments_final.loc[(tournaments_final['season'].isin([2024])) & (tournaments_final['tournament_stats'] == 'French Open'), 'last_edition'] = False
+tournaments_final.loc[(tournaments_final['season'].isin([2017, 2018, 2019, 2020])) & (tournaments_final['tournament_stats'] == 'Finals - Turin'), 'url'] = '/tennis/world/atp-finals-london/results/'
+tournaments_final.loc[(tournaments_final['season'].isin([2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016])) & (tournaments_final['tournament_stats'] == 'Finals - Turin'), 'url'] = '/tennis/world/atp-world-tour-finals-london/results/'
+tournaments_final.loc[(tournaments_final['season'] <= 2022) & (tournaments_final['tournament_stats'] == 'Next Gen Finals - Jeddah'), 'url'] = '/tennis/world/atp-next-gen-finals-milan/results/'
+tournaments_final.loc[(tournaments_final['season'] == 2021) & (tournaments_final['tournament_stats'] == 'Olympic Games'), 'season'] = 2020
 
 tournaments_final.to_csv('tournaments_by_season_oddsportal.csv', index=False)
 
-tournaments_final = pd.read_csv('tournaments_by_season_oddsportal.csv')
 
 # Games
-data = []
+tournaments_final = pd.read_csv('tournaments_by_season_oddsportal.csv')
+games = pd.read_csv('games_oddsportal2.csv')
+
+scraped_tournaments = list((games['game_url'].str.split('/').str[:4].str.join('/') + '/').unique())
+missing_tournaments = []
 for index, row in tqdm(tournaments_final.iterrows(), total = len(tournaments_final)):
     url = f'https://www.oddsportal.com{row["url"]}' if row['last_edition'] == True else f'https://www.oddsportal.com{row["url"].replace('/results/', '')}-{row["season"]}/results/'
+    if url.replace(f'https://www.oddsportal.com','').replace('results/','') not in scraped_tournaments:
+        print(url)
+        missing_tournaments.append(url)
+
+data = []
+for url in tqdm(missing_tournaments):
     game_rows = []
     for page in range(1, 8):
         options = Options()
-        options.add_argument("--log-level=3")
-        options.add_argument("--headless") 
         driver = webdriver.Chrome(options=options)
         
         driver.get(url+'#/page/'+str(page)+'/')
@@ -112,7 +137,7 @@ for index, row in tqdm(tournaments_final.iterrows(), total = len(tournaments_fin
         
         soup = BeautifulSoup(html, 'html.parser')
         game_rows += soup.select('div.group.flex')
-        sleep(5+random())
+        sleep(3+random())
         
         if page == 1:
             number_of_pages = len(soup.find_all('a', class_='pagination-link'))-1 if len(soup.find_all('a', class_='pagination-link')) != 0 else 1
@@ -146,15 +171,18 @@ for index, row in tqdm(tournaments_final.iterrows(), total = len(tournaments_fin
             
             print(f'Could not extract data from row: {link}')
 
-games = pd.DataFrame(data)
+new_games = pd.DataFrame(data)
 
-games.to_csv('games_oddsportal.csv', index=False)
+games = pd.concat([games, new_games], axis = 0).reset_index(drop=True)
+games.to_csv('games_oddsportal2.csv', index=False)
 
+
+#<------------------------------------------------------------
+# Games odds
 games = pd.read_csv('games_oddsportal.csv')
 
 with open('odds_data2.json', 'r') as json_file:
     odds_data = json.load(json_file)
-
 
 chrome_options = webdriver.ChromeOptions()
 #user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
@@ -230,10 +258,8 @@ for index, row in tqdm(games.iterrows(), total = len(games)):
             print(f"Saved {count} games to odds_data2.json")
 driver.quit()
 
-with open('odds_data2.json', 'w') as json_file:
+with open('odds_data.json', 'w') as json_file:
     json.dump(odds_data, json_file, indent=4, default=str)
-
-pd.DataFrame(odds_data).to_csv('odds_data2.csv', index=False)
 
 expanded_data = []
 for game in odds_data:
