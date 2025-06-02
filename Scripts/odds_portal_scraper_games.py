@@ -13,7 +13,7 @@ from tqdm import tqdm
 from functions import *
 import json
 
-games = pd.read_csv('games_oddsportal2.csv')
+games = pd.read_csv('games_oddsportal.csv')
 
 with open('odds_data.json', 'r') as json_file:
     odds_data = json.load(json_file)
@@ -68,7 +68,7 @@ for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape))
                     closing_odd = float(odds.text) if odds.text != '-' else None
                     
                     driver.execute_script("""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});""", odds)
-                    sleep(0.02)  
+                    sleep(0.03)  
                     
                     wait.until(expected_conditions.element_to_be_clickable(odds)).click() 
                     
@@ -124,7 +124,7 @@ df = df.explode('odds').reset_index(drop=True)
 odds_expanded = pd.json_normalize(df['odds'])
 expanded_df = pd.concat([df.drop(columns='odds').reset_index(drop=True), odds_expanded.reset_index(drop=True)], axis=1)
 
-with open('odds_data3.json', 'r') as json_file:
+with open('odds_data2.json', 'r') as json_file:
     odds_data3 = json.load(json_file)
 
 df3 = pd.DataFrame(odds_data3)
@@ -138,6 +138,7 @@ full_df.drop_duplicates(subset=['game_url'])
 
 full_df = pd.concat([expanded_df, expanded_df3], ignore_index=True)
 full_df.drop_duplicates(subset=['game_url', 'bookmaker'])
+
 
 combined_odds_data = odds_data + odds_data3
 combined_odds_data = list({item['game_url']: item for item in combined_odds_data if 'game_url' in item}.values())

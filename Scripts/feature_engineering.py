@@ -22,6 +22,7 @@ from keras._tf_keras.keras.callbacks import EarlyStopping
 from sklearn.model_selection import KFold
 from skopt import BayesSearchCV
 from bayes_opt import BayesianOptimization
+from datetime import datetime
 pd.set_option('display.max_rows',600)
 
 
@@ -29,7 +30,10 @@ pd.set_option('display.max_rows',600)
 seasons = list(range(1978, 2025))
 games = pd.DataFrame()
 for season in seasons:
-    df = pd.concat([pd.read_csv(f'tennis_atp-master/atp_matches_{season}.csv'),pd.read_csv(f'tennis_atp-master/atp_matches_qual_chall_{season}.csv')],axis = 0).reset_index(drop=True)
+    if season != 2025:
+        df = pd.concat([pd.read_csv(f'tennis_atp-master/atp_matches_{season}.csv'),pd.read_csv(f'tennis_atp-master/atp_matches_qual_chall_{season}.csv')],axis = 0).reset_index(drop=True)
+    else:
+        df = pd.read_csv(f'tennis_atp-master/atp_matches_{season}.csv')
     df.insert(0, 'season', season)
     df.loc[df['tourney_name'].str.contains(' Olympics', na=False), 'tourney_level'] = 'O'
     
@@ -38,6 +42,10 @@ for season in seasons:
 different_names_dict = {'Edouard Roger-Vasselin':'Edouard Roger Vasselin'}
 games['winner_name'].replace(different_names_dict, inplace=True)
 games['loser_name'].replace(different_names_dict, inplace=True)
+
+games['tourney_date'] = pd.to_datetime(games['tourney_date'], format = '%Y%m%d')
+games['round'] = pd.Categorical(games['round'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
+games = games[(~games['tourney_name'].isin(['Laver Cup']))].sort_values(by=['tourney_date', 'tourney_name', 'round']).reset_index(drop=True)
 
 #games.drop(columns = ['winner', 'loser', 'game_id'],inplace=True) 
 games.insert(games.columns.get_loc('winner_name'), 'winner', games['winner_name'].apply(lambda x: ' '.join(x.strip().split(' ')[1:]) + ' ' + x.strip().split(' ')[0][0] + '.' if len(x.strip().split(' ')) > 1 else x))
@@ -65,35 +73,32 @@ for index, row in tqdm(games.iterrows(), total = len(games)):
     elif row['loser_name'] == 'Zhizhen Zhang':
         games.loc[index, 'loser'] = 'Zhang Zh.'
 
-# Save Players data
-players = games.drop_duplicates(subset = 'loser_name')[['loser_name', 'loser_id', 'loser_hand', 'loser_ht', 'loser_ioc']].rename(columns={'loser_name':'player', 'loser_id':'id', 'loser_hand':'hand', 'loser_ht':'height', 'loser_ioc':'ioc'})
-players.to_csv('players.csv', index= False)
-
 tournaments = pd.read_csv('tournaments_by_season.csv')
-
+tournaments.rename(columns={'tournament_stats':'tourney_name', 'tournament_odds':'tourney_full_name', 'series':'tourney_series', 'country_code':'tourney_ioc'}, inplace=True)
 #games.drop(columns=['tourney_full_name', 'tourney_series'], inplace=True)
 games['tourney_name'] = games['tourney_name'].str.strip()
 
-games = pd.merge(games, tournaments.rename(columns={'tournament_stats':'tourney_name', 'tournament_odds':'tourney_full_name', 'series':'tourney_series'}), on=['tourney_name', 'season'], how='left')
+games = pd.merge(games, tournaments[['tourney_name', 'season', 'tourney_full_name', 'tourney_series', 'tourney_ioc']], on=['tourney_name', 'season'], how='left')
 tourney_full_name_col = games.pop('tourney_full_name')
 games.insert(games.columns.get_loc('surface'), 'tourney_full_name', tourney_full_name_col)
 tourney_series_col = games.pop('tourney_series')
 games.insert(games.columns.get_loc('surface'), 'tourney_series', tourney_series_col)
-
-for index, row in tqdm(games.iterrows(), total = len(games)):
-    if row['tourney_level'] == 'O':
-        games.at[index, 'tourney_series'] = 'Masters 1000'
-    elif row['tourney_level'] == 'C':
-        games.at[index, 'tourney_series'] = 'Challenger'
-
-games['tourney_date'] = pd.to_datetime(games['tourney_date'], format = '%Y%m%d')
-games['round'] = pd.Categorical(games['round'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
-games = games[(~games['tourney_name'].isin(['Laver Cup']))].sort_values(by=['tourney_date', 'tourney_name', 'round']).reset_index(drop=True)
+tourney_series_col = games.pop('tourney_ioc')
+games.insert(games.columns.get_loc('surface'), 'tourney_ioc', tourney_series_col)
 
 # Merge odds data
-odds = pd.read_csv('Odds/odds.csv')
+# Odds data
+seasons = list(range(2001, 2026))
+odds = pd.DataFrame()
+for season in seasons:
+    try:
+        df = pd.read_excel(f'Odds/{season}.xlsx')
+    except:
+        df = pd.read_excel(f'Odds/{season}.xls')
+    df.insert(0, 'Season', season)
+    odds = pd.concat([odds, df], axis = 0).reset_index(drop=True)
 odds = janitor.clean_names(odds).rename(columns={'tournament':'tourney_full_name'})
-odds = odds[(odds['season'] >= 2002) & (odds['season'] <= 2024)].reset_index(drop=True)
+odds = odds[(odds['season'] >= 2009) & (odds['season'] <= 2024)].reset_index(drop=True)
 
 odds=odds.sort_values("date").reset_index(drop=True)
 odds['winner'] = odds['winner'].str.strip()
@@ -159,10 +164,77 @@ games = pd.merge(games, odds[['winner', 'loser', 'tourney_full_name', 'season', 
 # Drop rows by index
 #games[games['_merge'] == 'right_only'][['winner', 'loser', 'round', 'tourney_full_name', 'season']].sort_values(by = ['tourney_full_name', 'season'])
 print(games[games.duplicated(subset=['game_id'], keep=False)][['winner', 'loser', 'game_id', 'tourney_full_name', 'season', 'b365w', 'b365l', 'psw', 'psl', 'maxw', 'maxl', 'avgw', 'avgl']].sort_values(by=['tourney_full_name', 'season']))
-games = games.drop([153325, 159886, 160850, 160864, 168897, 168910, 206667, 206680, 235828, 235837, 298525, 298532, 378695, 378708], axis=0).reset_index(drop=True)
+games = games.drop([235820, 235829, 298517, 298524, 378687, 378700], axis=0).reset_index(drop=True)
+
+games['surface'].replace({'Carpet':'Hard'},inplace=True)
 
 # Elo rankings
-games['surface'].replace({'Carpet':'Hard'},inplace=True)
+class CalculateElo:
+    def __init__(self, surface, games):
+        # Initialize player Elo and match count dictionaries
+        self.surface = surface
+        self.playersToElo = {}
+        self.matchesCount = {}
+        self.games = games
+        
+        self.elo_df = pd.DataFrame()
+    
+    # Update matches count
+    def updateMatchesCount(self,playerA, playerB):
+        self.matchesCount[playerA] = self.matchesCount.get(playerA, 0) + 1
+        self.matchesCount[playerB] = self.matchesCount.get(playerB, 0) + 1
+
+    # Update Elo ratings
+    def updateElo(self, playerA, playerB, winner, level, match_date, match_num):
+        rA = self.playersToElo.get(playerA, [(1500, datetime(1900, 1, 1), 0)])[-1][0]
+        rB = self.playersToElo.get(playerB, [(1500, datetime(1900, 1, 1), 0)])[-1][0]
+
+        eA = 1 / (1 + 10 ** ((rB - rA) / 400))
+        eB = 1 / (1 + 10 ** ((rA - rB) / 400))
+        sA, sB = (1, 0) if winner == playerA else (0, 1)
+
+        kA = 250 / ((self.matchesCount[playerA] + 5) ** 0.4)
+        kB = 250 / ((self.matchesCount[playerB] + 5) ** 0.4)
+        k = 1.1 if level == "G" else 1.0
+
+        rA_new = rA + (k * kA) * (sA - eA)
+        rB_new = rB + (k * kB) * (sB - eB)
+
+        self.playersToElo.setdefault(playerA, []).append((rA_new, match_date, match_num))
+        self.playersToElo.setdefault(playerB, []).append((rB_new, match_date, match_num))
+        return rA, rB
+
+    def calculate_elo(self):
+        if self.surface == None:
+            for index, row in tqdm(self.games.iterrows(), total = len(self.games), desc = f'Getting Elo'):
+                playerA, playerB = row["winner_name"], row["loser_name"]
+                self.updateMatchesCount(playerA, playerB)
+                self.elo_df.loc[index, ['winner_elo', 'loser_elo']] = self.updateElo(playerA, playerB, row["winner_name"], row["tourney_level"], row["tourney_date"], row["match_num"])
+        else:
+            self.games = self.games[self.games['surface'] == self.surface]
+            for index, row in tqdm(self.games.iterrows(), total = len(self.games), desc = f'Getting Elo {self.surface}'):
+                playerA, playerB = row["winner_name"], row["loser_name"]
+                self.updateMatchesCount(playerA, playerB)
+                self.elo_df.loc[index, [f'winner_elo_{self.surface}', f'loser_elo_{self.surface}']] = self.updateElo(playerA, playerB, row["winner_name"], row["tourney_level"], row["tourney_date"], row["match_num"])
+
+ranking_elo = {}
+for surface in [None, 'Hard', 'Grass', 'Clay']:
+    EloCalculator = CalculateElo(surface=surface, games = games)
+    EloCalculator.calculate_elo()
+    if surface is None:
+        ranking_elo[f'Elo'] = EloCalculator.elo_df
+    else:
+        ranking_elo[f'Elo {surface}'] = EloCalculator.elo_df
+
+elo_surface = pd.concat([ranking_elo['Elo Hard'].rename(columns={'winner_elo_Hard':'winner_elo_surface', 'loser_elo_Hard':'loser_elo_surface'})[['winner_elo_surface', 'loser_elo_surface']],
+                        ranking_elo['Elo Grass'].rename(columns={'winner_elo_Grass':'winner_elo_surface', 'loser_elo_Grass':'loser_elo_surface'})[['winner_elo_surface', 'loser_elo_surface']],
+                        ranking_elo['Elo Clay'].rename(columns={'winner_elo_Clay':'winner_elo_surface', 'loser_elo_Clay':'loser_elo_surface'})[['winner_elo_surface', 'loser_elo_surface']]], axis = 0)
+elo = ranking_elo['Elo'][['winner_elo', 'loser_elo']]
+games = pd.concat([games, elo, elo_surface],axis=1)
+
+games[(games['winner_name'] == 'Novak Djokovic') | (games['loser_name'] == 'Novak Djokovic')][['winner_name', 'loser_name', 'tourney_date', 'season', 'tourney_name', 'round', 'winner_elo', 'winner_elo_surface', 'loser_elo', 'loser_elo_surface']]
+
+"""
 def elo_rankings(games, surface=None):
     if surface:
         games = games[games['surface'] == surface]
@@ -183,7 +255,7 @@ def elo_rankings(games, surface=None):
         elo[w]=new_elow
         elo[l]=new_elol
         ranking_elo.append((elo[games.iloc[i,:]['winner_name']],elo[games.iloc[i,:]['loser_name']]))
-    ranking_elo=pd.DataFrame(ranking_elo,columns=["winner_elo","loser_elo"], index = games.index)
+    ranking_elo=pd.DataFrame(ranking_elo,columns=["winner_elo2","loser_elo2"], index = games.index)
     if surface:
         ranking_elo.columns = ["winner_elo_surface","loser_elo_surface"]
     return ranking_elo
@@ -192,7 +264,7 @@ ranking_elo = elo_rankings(games)
 ranking_elo_surface = pd.concat([elo_rankings(games, surface='Hard'), elo_rankings(games, surface='Grass'), elo_rankings(games, surface='Clay')], axis = 0) # Grass, Clay, Hard
 games = pd.concat([games, ranking_elo, ranking_elo_surface],axis=1)
 games[['winner', 'loser', 'winner_elo_surface', 'loser_elo_surface']]
-
+"""
 
 """
 # Glicko rankings
@@ -280,8 +352,11 @@ games["loser_rank_points"]=games["loser_rank_points"].replace(np.nan,0).astype(i
 games['winner_rank_group'] = games['winner_rank'].apply(rank_group)
 games['loser_rank_group'] = games['loser_rank'].apply(rank_group)
 
+games['winner_odds'] = np.where(games['psw'].notnull(), games['psw'], np.where(games['avgw'].notnull(), games['avgw'], games['b365w']))
+games['loser_odds'] = np.where(games['psl'].notnull(), games['psl'], np.where(games['avgl'].notnull(), games['avgl'], games['b365l']))
+
 # Imput missing games
-games[(games['w_SvGms'] == 0) & (games['comment'] == 'Completed')][['winner_name', 'loser_name', 'tourney_name', 'season', 'score', 'comment', 'w_SvGms', 'l_SvGms']]
+#games[(games['w_SvGms'] == 0) & (games['comment'] == 'Completed')][['winner_name', 'loser_name', 'tourney_name', 'season', 'score', 'comment', 'w_SvGms', 'l_SvGms']]
 for index, row in tqdm(games.iterrows(), total = len(games)):
     if np.ceil((row['w_games'] + row['l_games']) / 2) != row['w_SvGms'] or np.floor((row['w_games'] + row['l_games']) / 2) != row['w_SvGms']:
         games.at[index, 'w_SvGms'] = np.ceil((row['w_games'] + row['l_games']) / 2)
@@ -289,106 +364,106 @@ for index, row in tqdm(games.iterrows(), total = len(games)):
         games.at[index, 'l_SvGms'] = np.floor((row['w_games'] + row['l_games']) / 2)
 
 # Winner-Loser to Favored-Underdog
-games['favored_win'] = games.apply(lambda row: 1 if row['winner_rank'] < row['loser_rank'] else 0, axis=1)
+games['favored_win'] = games.apply(lambda row: 1 if row['winner_odds'] < row['loser_odds'] else 0, axis=1)
 
-games['favored'] = games.apply(lambda row: row['winner_name'] if row['winner_rank'] < row['loser_rank'] else row['loser_name'], axis=1)
-games['underdog'] = games.apply(lambda row: row['loser_name'] if row['winner_rank'] < row['loser_rank'] else row['winner_name'], axis=1)
+games['favored'] = games.apply(lambda row: row['winner_name'] if row['winner_odds'] < row['loser_odds'] else row['loser_name'], axis=1)
+games['underdog'] = games.apply(lambda row: row['loser_name'] if row['winner_odds'] < row['loser_odds'] else row['winner_name'], axis=1)
 
-games['favored_id'] = games.apply(lambda row: row['winner_id'] if row['winner_rank'] < row['loser_rank'] else row['loser_id'], axis=1)
-games['underdog_id'] = games.apply(lambda row: row['loser_id'] if row['winner_rank'] < row['loser_rank'] else row['winner_id'], axis=1)
+games['favored_id'] = games.apply(lambda row: row['winner_id'] if row['winner_odds'] < row['loser_odds'] else row['loser_id'], axis=1)
+games['underdog_id'] = games.apply(lambda row: row['loser_id'] if row['winner_odds'] < row['loser_odds'] else row['winner_id'], axis=1)
 
-games['favored_entry'] = games.apply(lambda row: row['winner_entry'] if row['winner_rank'] < row['loser_rank'] else row['loser_entry'], axis=1)
-games['underdog_entry'] = games.apply(lambda row: row['loser_entry'] if row['winner_rank'] < row['loser_rank'] else row['winner_entry'], axis=1)
+games['favored_entry'] = games.apply(lambda row: row['winner_entry'] if row['winner_odds'] < row['loser_odds'] else row['loser_entry'], axis=1)
+games['underdog_entry'] = games.apply(lambda row: row['loser_entry'] if row['winner_odds'] < row['loser_odds'] else row['winner_entry'], axis=1)
 
-games['favored_seed'] = games.apply(lambda row: row['winner_seed'] if row['winner_rank'] < row['loser_rank'] else row['loser_seed'], axis=1)
-games['underdog_seed'] = games.apply(lambda row: row['loser_seed'] if row['winner_rank'] < row['loser_rank'] else row['winner_seed'], axis=1)
+games['favored_seed'] = games.apply(lambda row: row['winner_seed'] if row['winner_odds'] < row['loser_odds'] else row['loser_seed'], axis=1)
+games['underdog_seed'] = games.apply(lambda row: row['loser_seed'] if row['winner_odds'] < row['loser_odds'] else row['winner_seed'], axis=1)
 
-games['favored_hand'] = games.apply(lambda row: row['winner_hand'] if row['winner_rank'] < row['loser_rank'] else row['loser_hand'], axis=1)
-games['underdog_hand'] = games.apply(lambda row: row['loser_hand'] if row['winner_rank'] < row['loser_rank'] else row['winner_hand'], axis=1)
+games['favored_hand'] = games.apply(lambda row: row['winner_hand'] if row['winner_odds'] < row['loser_odds'] else row['loser_hand'], axis=1)
+games['underdog_hand'] = games.apply(lambda row: row['loser_hand'] if row['winner_odds'] < row['loser_odds'] else row['winner_hand'], axis=1)
 
-games['favored_ht'] = games.apply(lambda row: row['winner_ht'] if row['winner_rank'] < row['loser_rank'] else row['loser_ht'], axis=1)
-games['underdog_ht'] = games.apply(lambda row: row['loser_ht'] if row['winner_rank'] < row['loser_rank'] else row['winner_ht'], axis=1)
+games['favored_ht'] = games.apply(lambda row: row['winner_ht'] if row['winner_odds'] < row['loser_odds'] else row['loser_ht'], axis=1)
+games['underdog_ht'] = games.apply(lambda row: row['loser_ht'] if row['winner_odds'] < row['loser_odds'] else row['winner_ht'], axis=1)
 
-games['favored_ioc'] = games.apply(lambda row: row['winner_ioc'] if row['winner_rank'] < row['loser_rank'] else row['loser_ioc'], axis=1)
-games['underdog_ioc'] = games.apply(lambda row: row['loser_ioc'] if row['winner_rank'] < row['loser_rank'] else row['winner_ioc'], axis=1)
+games['favored_ioc'] = games.apply(lambda row: row['winner_ioc'] if row['winner_odds'] < row['loser_odds'] else row['loser_ioc'], axis=1)
+games['underdog_ioc'] = games.apply(lambda row: row['loser_ioc'] if row['winner_odds'] < row['loser_odds'] else row['winner_ioc'], axis=1)
 
-games['favored_age'] = games.apply(lambda row: row['winner_age'] if row['winner_rank'] < row['loser_rank'] else row['loser_age'], axis=1)
-games['underdog_age'] = games.apply(lambda row: row['loser_age'] if row['winner_rank'] < row['loser_rank'] else row['winner_age'], axis=1)
+games['favored_age'] = games.apply(lambda row: row['winner_age'] if row['winner_odds'] < row['loser_odds'] else row['loser_age'], axis=1)
+games['underdog_age'] = games.apply(lambda row: row['loser_age'] if row['winner_odds'] < row['loser_odds'] else row['winner_age'], axis=1)
 
-games['favored_rank'] = games.apply(lambda row: row['winner_rank'] if row['winner_rank'] < row['loser_rank'] else row['loser_rank'], axis=1)
-games['underdog_rank'] = games.apply(lambda row: row['loser_rank'] if row['winner_rank'] < row['loser_rank'] else row['winner_rank'], axis=1)
+games['favored_rank'] = games.apply(lambda row: row['winner_rank'] if row['winner_odds'] < row['loser_odds'] else row['loser_rank'], axis=1)
+games['underdog_rank'] = games.apply(lambda row: row['loser_rank'] if row['winner_odds'] < row['loser_odds'] else row['winner_rank'], axis=1)
 
-games['favored_rank_group'] = games.apply(lambda row: row['winner_rank_group'] if row['winner_rank'] < row['loser_rank'] else row['loser_rank_group'], axis=1)
-games['underdog_rank_group'] = games.apply(lambda row: row['loser_rank_group'] if row['winner_rank'] < row['loser_rank'] else row['winner_rank_group'], axis=1)
+games['favored_rank_group'] = games.apply(lambda row: row['winner_rank_group'] if row['winner_odds'] < row['loser_odds'] else row['loser_rank_group'], axis=1)
+games['underdog_rank_group'] = games.apply(lambda row: row['loser_rank_group'] if row['winner_odds'] < row['loser_odds'] else row['winner_rank_group'], axis=1)
 
-games['favored_rank_pts'] = games.apply(lambda row: row['winner_rank_points'] if row['winner_rank'] < row['loser_rank'] else row['loser_rank_points'], axis=1)
-games['underdog_rank_pts'] = games.apply(lambda row: row['loser_rank_points'] if row['winner_rank'] < row['loser_rank'] else row['winner_rank_points'], axis=1)
+games['favored_rank_pts'] = games.apply(lambda row: row['winner_rank_points'] if row['winner_odds'] < row['loser_odds'] else row['loser_rank_points'], axis=1)
+games['underdog_rank_pts'] = games.apply(lambda row: row['loser_rank_points'] if row['winner_odds'] < row['loser_odds'] else row['winner_rank_points'], axis=1)
 
-games['favored_elo'] = games.apply(lambda row: row['winner_elo'] if row['winner_rank'] < row['loser_rank'] else row['loser_elo'], axis=1)
-games['underdog_elo'] = games.apply(lambda row: row['loser_elo'] if row['winner_rank'] < row['loser_rank'] else row['winner_elo'], axis=1)
+games['favored_elo'] = games.apply(lambda row: row['winner_elo'] if row['winner_odds'] < row['loser_odds'] else row['loser_elo'], axis=1)
+games['underdog_elo'] = games.apply(lambda row: row['loser_elo'] if row['winner_odds'] < row['loser_odds'] else row['winner_elo'], axis=1)
 
-games['favored_elo_surface'] = games.apply(lambda row: row['winner_elo_surface'] if row['winner_rank'] < row['loser_rank'] else row['loser_elo_surface'], axis=1)
-games['underdog_elo_surface'] = games.apply(lambda row: row['loser_elo_surface'] if row['winner_rank'] < row['loser_rank'] else row['winner_elo_surface'], axis=1)
+games['favored_elo_surface'] = games.apply(lambda row: row['winner_elo_surface'] if row['winner_odds'] < row['loser_odds'] else row['loser_elo_surface'], axis=1)
+games['underdog_elo_surface'] = games.apply(lambda row: row['loser_elo_surface'] if row['winner_odds'] < row['loser_odds'] else row['winner_elo_surface'], axis=1)
 
-games['favored_sets'] = games.apply(lambda row: row['w_sets'] if row['winner_rank'] < row['loser_rank'] else row['l_sets'], axis=1)
-games['underdog_sets'] = games.apply(lambda row: row['l_sets'] if row['winner_rank'] < row['loser_rank'] else row['w_sets'], axis=1)
+games['favored_sets'] = games.apply(lambda row: row['w_sets'] if row['winner_odds'] < row['loser_odds'] else row['l_sets'], axis=1)
+games['underdog_sets'] = games.apply(lambda row: row['l_sets'] if row['winner_odds'] < row['loser_odds'] else row['w_sets'], axis=1)
 
-games['favored_games'] = games.apply(lambda row: row['w_games'] if row['winner_rank'] < row['loser_rank'] else row['l_games'], axis=1)
-games['underdog_games'] = games.apply(lambda row: row['l_games'] if row['winner_rank'] < row['loser_rank'] else row['w_games'], axis=1)
+games['favored_games'] = games.apply(lambda row: row['w_games'] if row['winner_odds'] < row['loser_odds'] else row['l_games'], axis=1)
+games['underdog_games'] = games.apply(lambda row: row['l_games'] if row['winner_odds'] < row['loser_odds'] else row['w_games'], axis=1)
 
-games['favored_ace'] = games.apply(lambda row: row['w_ace'] if row['winner_rank'] < row['loser_rank'] else row['l_ace'], axis=1)
-games['underdog_ace'] = games.apply(lambda row: row['l_ace'] if row['winner_rank'] < row['loser_rank'] else row['w_ace'], axis=1)
+games['favored_ace'] = games.apply(lambda row: row['w_ace'] if row['winner_odds'] < row['loser_odds'] else row['l_ace'], axis=1)
+games['underdog_ace'] = games.apply(lambda row: row['l_ace'] if row['winner_odds'] < row['loser_odds'] else row['w_ace'], axis=1)
 
-games['favored_df'] = games.apply(lambda row: row['w_df'] if row['winner_rank'] < row['loser_rank'] else row['l_df'], axis=1)
-games['underdog_df'] = games.apply(lambda row: row['l_df'] if row['winner_rank'] < row['loser_rank'] else row['w_df'], axis=1)
+games['favored_df'] = games.apply(lambda row: row['w_df'] if row['winner_odds'] < row['loser_odds'] else row['l_df'], axis=1)
+games['underdog_df'] = games.apply(lambda row: row['l_df'] if row['winner_odds'] < row['loser_odds'] else row['w_df'], axis=1)
 
-games['favored_svpt'] = games.apply(lambda row: row['w_svpt'] if row['winner_rank'] < row['loser_rank'] else row['l_svpt'], axis=1)
-games['underdog_svpt'] = games.apply(lambda row: row['l_svpt'] if row['winner_rank'] < row['loser_rank'] else row['w_svpt'], axis=1)
+games['favored_svpt'] = games.apply(lambda row: row['w_svpt'] if row['winner_odds'] < row['loser_odds'] else row['l_svpt'], axis=1)
+games['underdog_svpt'] = games.apply(lambda row: row['l_svpt'] if row['winner_odds'] < row['loser_odds'] else row['w_svpt'], axis=1)
 
-games['favored_1st_in'] = games.apply(lambda row: row['w_1stIn'] if row['winner_rank'] < row['loser_rank'] else row['l_1stIn'], axis=1)
-games['underdog_1st_in'] = games.apply(lambda row: row['l_1stIn'] if row['winner_rank'] < row['loser_rank'] else row['w_1stIn'], axis=1)
+games['favored_1st_in'] = games.apply(lambda row: row['w_1stIn'] if row['winner_odds'] < row['loser_odds'] else row['l_1stIn'], axis=1)
+games['underdog_1st_in'] = games.apply(lambda row: row['l_1stIn'] if row['winner_odds'] < row['loser_odds'] else row['w_1stIn'], axis=1)
 
-games['favored_1st_won'] = games.apply(lambda row: row['w_1stWon'] if row['winner_rank'] < row['loser_rank'] else row['l_1stWon'], axis=1)
-games['underdog_1st_won'] = games.apply(lambda row: row['l_1stWon'] if row['winner_rank'] < row['loser_rank'] else row['w_1stWon'], axis=1)
+games['favored_1st_won'] = games.apply(lambda row: row['w_1stWon'] if row['winner_odds'] < row['loser_odds'] else row['l_1stWon'], axis=1)
+games['underdog_1st_won'] = games.apply(lambda row: row['l_1stWon'] if row['winner_odds'] < row['loser_odds'] else row['w_1stWon'], axis=1)
 
-games['favored_2nd_won'] = games.apply(lambda row: row['w_2ndWon'] if row['winner_rank'] < row['loser_rank'] else row['l_2ndWon'], axis=1)
-games['underdog_2nd_won'] = games.apply(lambda row: row['l_2ndWon'] if row['winner_rank'] < row['loser_rank'] else row['w_2ndWon'], axis=1)
+games['favored_2nd_won'] = games.apply(lambda row: row['w_2ndWon'] if row['winner_odds'] < row['loser_odds'] else row['l_2ndWon'], axis=1)
+games['underdog_2nd_won'] = games.apply(lambda row: row['l_2ndWon'] if row['winner_odds'] < row['loser_odds'] else row['w_2ndWon'], axis=1)
 
-games['favored_serve_games'] = games.apply(lambda row: row['w_SvGms'] if row['winner_rank'] < row['loser_rank'] else row['l_SvGms'], axis=1)
-games['underdog_serve_games'] = games.apply(lambda row: row['l_SvGms'] if row['winner_rank'] < row['loser_rank'] else row['w_SvGms'], axis=1)
+games['favored_serve_games'] = games.apply(lambda row: row['w_SvGms'] if row['winner_odds'] < row['loser_odds'] else row['l_SvGms'], axis=1)
+games['underdog_serve_games'] = games.apply(lambda row: row['l_SvGms'] if row['winner_odds'] < row['loser_odds'] else row['w_SvGms'], axis=1)
 
-games['favored_svpt_won'] = games.apply(lambda row: row['w_svpt_won'] if row['winner_rank'] < row['loser_rank'] else row['l_svpt_won'], axis=1)
-games['underdog_svpt_won'] = games.apply(lambda row: row['l_svpt_won'] if row['winner_rank'] < row['loser_rank'] else row['w_svpt_won'], axis=1)
+games['favored_svpt_won'] = games.apply(lambda row: row['w_svpt_won'] if row['winner_odds'] < row['loser_odds'] else row['l_svpt_won'], axis=1)
+games['underdog_svpt_won'] = games.apply(lambda row: row['l_svpt_won'] if row['winner_odds'] < row['loser_odds'] else row['w_svpt_won'], axis=1)
 
-games['favored_rtpt_won'] = games.apply(lambda row: row['w_rtpt_won'] if row['winner_rank'] < row['loser_rank'] else row['l_rtpt_won'], axis=1)
-games['underdog_rtpt_won'] = games.apply(lambda row: row['l_rtpt_won'] if row['winner_rank'] < row['loser_rank'] else row['w_rtpt_won'], axis=1)
+games['favored_rtpt_won'] = games.apply(lambda row: row['w_rtpt_won'] if row['winner_odds'] < row['loser_odds'] else row['l_rtpt_won'], axis=1)
+games['underdog_rtpt_won'] = games.apply(lambda row: row['l_rtpt_won'] if row['winner_odds'] < row['loser_odds'] else row['w_rtpt_won'], axis=1)
 
-games['favored_bp_saved'] = games.apply(lambda row: row['w_bpSaved'] if row['winner_rank'] < row['loser_rank'] else row['l_bpSaved'], axis=1)
-games['underdog_bp_saved'] = games.apply(lambda row: row['l_bpSaved'] if row['winner_rank'] < row['loser_rank'] else row['w_bpSaved'], axis=1)
+games['favored_bp_saved'] = games.apply(lambda row: row['w_bpSaved'] if row['winner_odds'] < row['loser_odds'] else row['l_bpSaved'], axis=1)
+games['underdog_bp_saved'] = games.apply(lambda row: row['l_bpSaved'] if row['winner_odds'] < row['loser_odds'] else row['w_bpSaved'], axis=1)
 
-games['favored_bp_faced'] = games.apply(lambda row: row['w_bpFaced'] if row['winner_rank'] < row['loser_rank'] else row['l_bpFaced'], axis=1)
-games['underdog_bp_faced'] = games.apply(lambda row: row['l_bpFaced'] if row['winner_rank'] < row['loser_rank'] else row['w_bpFaced'], axis=1)
+games['favored_bp_faced'] = games.apply(lambda row: row['w_bpFaced'] if row['winner_odds'] < row['loser_odds'] else row['l_bpFaced'], axis=1)
+games['underdog_bp_faced'] = games.apply(lambda row: row['l_bpFaced'] if row['winner_odds'] < row['loser_odds'] else row['w_bpFaced'], axis=1)
 
-games['favored_bp_won'] = games.apply(lambda row: row['w_bpWon'] if row['winner_rank'] < row['loser_rank'] else row['l_bpWon'], axis=1)
-games['underdog_bp_won'] = games.apply(lambda row: row['l_bpWon'] if row['winner_rank'] < row['loser_rank'] else row['w_bpWon'], axis=1)
+games['favored_bp_won'] = games.apply(lambda row: row['w_bpWon'] if row['winner_odds'] < row['loser_odds'] else row['l_bpWon'], axis=1)
+games['underdog_bp_won'] = games.apply(lambda row: row['l_bpWon'] if row['winner_odds'] < row['loser_odds'] else row['w_bpWon'], axis=1)
 
 games['favored_dominance_ratio'] = (games['favored_rtpt_won'] / games['underdog_svpt']) / (games['underdog_rtpt_won'] / games['favored_svpt'])
 games['underdog_dominance_ratio'] = (games['underdog_rtpt_won'] / games['favored_svpt']) / (games['favored_rtpt_won'] / games['underdog_svpt'])
 
-games['favored_max_odds'] = games.apply(lambda row: row['maxw'] if row['winner_rank'] < row['loser_rank'] else row['maxl'], axis=1)
-games['underdog_max_odds'] = games.apply(lambda row: row['maxl'] if row['winner_rank'] < row['loser_rank'] else row['maxw'], axis=1)
+games['favored_max_odds'] = games.apply(lambda row: row['maxw'] if row['winner_odds'] < row['loser_odds'] else row['maxl'], axis=1)
+games['underdog_max_odds'] = games.apply(lambda row: row['maxl'] if row['winner_odds'] < row['loser_odds'] else row['maxw'], axis=1)
 
-games['favored_avg_odds'] = games.apply(lambda row: row['avgw'] if row['winner_rank'] < row['loser_rank'] else row['avgl'], axis=1)
-games['underdog_avg_odds'] = games.apply(lambda row: row['avgl'] if row['winner_rank'] < row['loser_rank'] else row['avgw'], axis=1)
+games['favored_avg_odds'] = games.apply(lambda row: row['avgw'] if row['winner_odds'] < row['loser_odds'] else row['avgl'], axis=1)
+games['underdog_avg_odds'] = games.apply(lambda row: row['avgl'] if row['winner_odds'] < row['loser_odds'] else row['avgw'], axis=1)
 
-games['favored_pinnacle_odds'] = games.apply(lambda row: row['psw'] if row['winner_rank'] < row['loser_rank'] else row['psl'], axis=1)
-games['underdog_pinnacle_odds'] = games.apply(lambda row: row['psl'] if row['winner_rank'] < row['loser_rank'] else row['psw'], axis=1)
+games['favored_pinnacle_odds'] = games.apply(lambda row: row['psw'] if row['winner_odds'] < row['loser_odds'] else row['psl'], axis=1)
+games['underdog_pinnacle_odds'] = games.apply(lambda row: row['psl'] if row['winner_odds'] < row['loser_odds'] else row['psw'], axis=1)
 
-games['favored_bet365_odds'] = games.apply(lambda row: row['b365w'] if row['winner_rank'] < row['loser_rank'] else row['b365l'], axis=1)
-games['underdog_bet365_odds'] = games.apply(lambda row: row['b365l'] if row['winner_rank'] < row['loser_rank'] else row['b365w'], axis=1)
+games['favored_bet365_odds'] = games.apply(lambda row: row['b365w'] if row['winner_odds'] < row['loser_odds'] else row['b365l'], axis=1)
+games['underdog_bet365_odds'] = games.apply(lambda row: row['b365l'] if row['winner_odds'] < row['loser_odds'] else row['b365w'], axis=1)
 
-games['favored_odds'] = np.where(games['favored_pinnacle_odds'].notnull(), games['favored_pinnacle_odds'], np.where(games['favored_avg_odds'].notnull(), games['favored_avg_odds'], games['favored_bet365_odds']))
-games['underdog_odds'] = np.where(games['underdog_pinnacle_odds'].notnull(), games['underdog_pinnacle_odds'], np.where(games['underdog_avg_odds'].notnull(), games['underdog_avg_odds'], games['underdog_bet365_odds']))
+games['favored_odds'] = np.where(games['winner_odds'] < games['loser_odds'], games['winner_odds'], games['loser_odds'])
+games['underdog_odds'] = np.where(games['winner_odds'] >= games['loser_odds'], games['winner_odds'], games['loser_odds'])
 
 games.drop(columns = ['winner_id', 'winner_seed', 'winner_entry', 'winner_name', 'winner_hand', 'winner_ht', 'winner_ioc', 'winner_age',
         'loser_id', 'loser_seed', 'loser_entry', 'loser_name', 'loser_hand', 'loser_ht', 'loser_ioc', 'loser_age',
@@ -624,7 +699,7 @@ games = pd.read_csv('games.csv')
 games.set_index('Unnamed: 0', inplace=True)
 games['tourney_date'] = pd.to_datetime(games['tourney_date'])
 games['round'] = pd.Categorical(games['round'], categories=['Q1', 'Q2', 'Q3', 'ER', 'RR', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'BR', 'F'], ordered=True)
-games = games[games['tourney_level'].isin(['G', 'M', 'O', 'A', 'F'])].reset_index(drop=True)
+games = games[(games['tourney_level'].isin(['G', 'M', 'O', 'A', 'F'])) & (games['season'] >= 2009)].reset_index(drop=True)
 
 features = pd.read_csv('features.csv')
 features = features.set_index('Unnamed: 0')
@@ -652,19 +727,24 @@ games['entry_match'] = np.where((games['favored_entry'].isna()) & (games['underd
                                                 np.where((games['favored_entry'] == 'Q') & (games['underdog_entry'] == 'WC'), 3,
                                                     np.where((games['favored_entry'] == 'WC') & (games['underdog_entry'].isna()), 2,
                                                         np.where((games['favored_entry'] == 'WC') & (games['underdog_entry'] == 'Q'), 1, 0))))))))
+games['home_match'] = np.where((games['favored_ioc'] == games['tourney_ioc']) & (games['underdog_ioc'] == games['tourney_ioc']), 3,
+                            np.where((games['favored_ioc'] == games['tourney_ioc']) & (games['underdog_ioc'] != games['tourney_ioc']), 2,
+                                    np.where((games['favored_ioc'] != games['tourney_ioc']) & (games['underdog_ioc'] == games['tourney_ioc']), 1, 0)))
+
+
 
 # Feature selection
-features_names = ['season', 'week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff'] + features_to_keep
+features_names = ['week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff'] + features_to_keep
 features_names = [feature for feature in features_names if feature not in ['inactivity_diff', 'inactive_match']]
 games[features_names] = games[features_names].replace([np.inf, -np.inf], np.nan)
 games = games.dropna(subset = ['favored_odds', 'underdog_odds', 'hand_match', 'entry_match'] + features_names).reset_index(drop = True)
 
 # One Hot Encoding
 enc = OneHotEncoder()
-dummies = pd.DataFrame(enc.fit_transform(games[['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'inactive_match']]).toarray(),
-                    columns = enc.get_feature_names_out(['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'inactive_match']))
+dummies = pd.DataFrame(enc.fit_transform(games[['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'home_match', 'inactive_match']]).toarray(),
+                    columns = enc.get_feature_names_out(['tourney_series', 'surface', 'round', 'best_of', 'hand_match', 'entry_match', 'home_match', 'inactive_match']))
 dummies.drop(columns = [dummies.filter(like='series_').columns[-1]] + [dummies.filter(like='surface_').columns[-1]] + [dummies.filter(like='round_').columns[-1]] + [dummies.filter(like='best_of_').columns[-1]] +
-            [dummies.filter(like='hand_match_').columns[-1]] + [dummies.filter(like='entry_match_').columns[-1]] + [dummies.filter(like='inactive_match_').columns[-1]], axis = 1, inplace = True)
+            [dummies.filter(like='hand_match_').columns[-1]] + [dummies.filter(like='entry_match_').columns[-1]] + [dummies.filter(like='home_match_').columns[-1]] + [dummies.filter(like='inactive_match_').columns[-1]], axis = 1, inplace = True)
 dummies_features = dummies.columns.tolist()
 games = pd.concat([games, dummies], axis=1)
 
@@ -781,7 +861,6 @@ search_space = {
     'C': (0.1, 5, 'log-uniform')
 }
 
-
 opt = BayesSearchCV(
     estimator=LogisticRegression(
         penalty='elasticnet',
@@ -793,11 +872,13 @@ opt = BayesSearchCV(
     search_spaces=search_space,
     n_iter=100,
     scoring='neg_log_loss',
-    cv=5,
+    cv=3,
     random_state=42,
     n_jobs=-1
 )
+opt.fit(X_train_val_scaled[['win_pct_diff']], y_train_val)
 opt.fit(X_train_val_scaled, y_train_val)
+
 
 # Extract the best parameters
 best_params = opt.best_params_
@@ -817,7 +898,6 @@ coefficients = pd.DataFrame({
 }).sort_values(by='Coefficient', ascending=False)
 print(coefficients)
 selected_features = list(coefficients[coefficients['Coefficient'] != 0]['Feature'])
-
 
 # Log loss
 log_loss_test_results = pd.DataFrame()
@@ -902,6 +982,17 @@ print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['favored_pr
 
 log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = ['XGBoost', log_loss(odds_test["favored_win"].astype(int), odds_test["favored_prob_xgb"])]
 
+
+
+# Plot feature importance for XGBoost
+xgb_importances = pd.Series(xgb_model.feature_importances_, index=X_train_val_scaled[selected_features].columns)
+xgb_importances = xgb_importances.sort_values(ascending=True)
+plt.figure(figsize=(12, 6))
+plt.barh(xgb_importances.index, xgb_importances.values)
+plt.xlabel('Importance')
+plt.title('XGBoost Feature Importance')
+plt.tight_layout()
+plt.show()
 
 #<--------------------------------------------------------------------------------------------------------------------------------------------
 # Stacking
@@ -1066,24 +1157,24 @@ log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = [
 
 #<--------------------------------------------------------------------------------------------------------------------------------------------
 # Pinnacle Odds and ML Model
-model = 'enet'
+model = 'xgb'
 cl_fit = fit_second_stage(odds_train_val['favored_win'], odds_train_val[f'underdog_prob_{model}'], odds_train_val[f'favored_prob_{model}'], odds_train_val['underdog_prob_implied'], odds_train_val['favored_prob_implied'])
 print(cl_fit.summary())
 
 train_second_stage_probs = predict_second_stage(cl_fit.params, odds_train_val[f'underdog_prob_{model}'], odds_train_val[f'favored_prob_{model}'], odds_train_val['underdog_prob_implied'], odds_train_val['favored_prob_implied'])
-odds_train_val['2st_underdog_prob'], odds_train_val['2st_favored_prob'] = train_second_stage_probs[:,0], train_second_stage_probs[:,1]
+odds_train_val['underdog_prob_2st'], odds_train_val['favored_prob_2st'] = train_second_stage_probs[:,0], train_second_stage_probs[:,1]
 
 test_second_stage_probs = predict_second_stage(cl_fit.params, odds_test[f'underdog_prob_{model}'], odds_test[f'favored_prob_{model}'], odds_test['underdog_prob_implied'], odds_test['favored_prob_implied'])
-odds_test['2st_underdog_prob'], odds_test['2st_favored_prob'] = test_second_stage_probs[:,0], test_second_stage_probs[:,1]
+odds_test['underdog_prob_2st'], odds_test['favored_prob_2st'] = test_second_stage_probs[:,0], test_second_stage_probs[:,1]
 
-print(f"Train Log Loss: {log_loss(odds_train_val['favored_win'], odds_train_val['2st_favored_prob']):.5f}")
-print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['2st_favored_prob']):.5f}")
+print(f"Train Log Loss: {log_loss(odds_train_val['favored_win'], odds_train_val['favored_prob_2st']):.5f}")
+print(f"Test Log Loss: {log_loss(odds_test['favored_win'], odds_test['favored_prob_2st']):.5f}")
 
-log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = [f'{model} & Odds', log_loss(odds_test["favored_win"].astype(int), odds_test["2st_favored_prob"])]
+log_loss_test_results.loc[len(log_loss_test_results), ['model', 'log_loss']] = [f'{model} & Odds', log_loss(odds_test["favored_win"].astype(int), odds_test["favored_prob_2st"])]
 
 
 # Betting
-model = 'enet'
+model = 'xgb'
 #odds_test = full_odds_test.copy()
 expected_return_favored = (odds_test['favored_max_odds']-1)*odds_test[f'favored_prob_{model}'] - 1*(1-odds_test[f'favored_prob_{model}'])
 expected_return_underdog = (odds_test['underdog_max_odds']-1)*odds_test[f'underdog_prob_{model}'] - 1*(1-odds_test[f'underdog_prob_{model}'])
@@ -1129,7 +1220,7 @@ for index, threshold in enumerate(thresholds):
 print(pd.DataFrame(results_by_threshold))
 
 
-bets_results = odds_test[odds_test['expected_return'] > 0.1].copy()
+bets_results = odds_test[odds_test['expected_return'] > 0.06].copy()
 capital = 1
 full_model_capital = pd.DataFrame({'date':pd.to_datetime(bets_results['tourney_date'].iloc[0])-timedelta(days=1), f'capital':capital}, index=[0])
 for date, group in bets_results.groupby('tourney_date'):
