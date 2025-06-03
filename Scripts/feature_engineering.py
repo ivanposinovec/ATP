@@ -3,9 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import janitor
 from Scripts.functions import *
-import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
