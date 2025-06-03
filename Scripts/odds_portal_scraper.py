@@ -11,7 +11,6 @@ from tqdm import tqdm
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
-import json
 
 # Tournaments
 url = 'https://www.oddsportal.com/tennis/results/'
@@ -45,17 +44,15 @@ for country in countries:
             tournament = a_object.text.strip()
             url = a_object['href']
             
-            tournaments.append({'tournament':tournament, 'url':url})
+            tournaments.append({'tournament_odds_portal':tournament, 'url':url})
         except:
             print(f'Could not extract data from row: {a_object}')
 tournaments_df = pd.DataFrame(tournaments)
-tournaments_df = tournaments_df.drop_duplicates(subset=['tournament'])
-
+tournaments_df = tournaments_df.drop_duplicates(subset=['tournament_odds_portal'])
 
 tournaments_df_old = pd.read_csv('tournaments_by_season.csv')
-tournaments_df_old = tournaments_df_old[tournaments_df_old['season'] >= 2009].reset_index(drop=True)
 tournaments_df_old = tournaments_df_old.drop_duplicates(subset=['tournament_stats', 'season'])
-tournaments_df_old['tournament_stats'] = tournaments_df_old['tournament_stats'].apply(lambda x: x.replace('Masters','').strip()).replace({'Adelaide 1': 'Adelaide', 'Cologne 1': 'Cologne',
+tournaments_df_old['tournament_odds_portal'] = tournaments_df_old['tournament_stats'].apply(lambda x: x.replace('Masters','').strip()).replace({'Adelaide 1': 'Adelaide', 'Cologne 1': 'Cologne',
                                                                                                                                 'Great Ocean Road Open':'Melbourne (Great Ocean Road Open)',
                                                                                                                                 'Melbourne':'Melbourne (Summer Set)', 'Nur-Sultan':'Astana',
                                                                                                                                 'Murray River Open':'Melbourne (Murray River Open)', 'Naples':'Napoli', "Queen's Club":'London',
@@ -67,49 +64,53 @@ tournaments_df_old['tournament_stats'] = tournaments_df_old['tournament_stats'].
                                                                                                                                 'NextGen Finals':'Next Gen Finals - Jeddah',
                                                                                                                                 'London Olympics':'Olympic Games', 'Paris Olympics':'Olympic Games',
                                                                                                                                 'Rio Olympics':'Olympic Games', 'Tokyo Olympics':'Olympic Games'})
-tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
-lambda x: x['tournament_stats'].replace('Canada', 'Montreal') if x['season'] in [2009, 2011, 2013, 2015, 2017, 2019, 2022, 2024] 
-else x['tournament_stats'].replace('Canada', 'Toronto'), axis=1
+tournaments_df_old['tournament_odds_portal'] = tournaments_df_old.apply(
+lambda x: x['tournament_odds_portal'].replace('Canada', 'Montreal') if x['season'] in [2009, 2011, 2013, 2015, 2017, 2019, 2022, 2024] 
+else x['tournament_odds_portal'].replace('Canada', 'Toronto'), axis=1
 )
-tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
-lambda x: x['tournament_stats'].replace('Belgrade', 'Belgrade 2') if x['season'] in [2024] 
-else x['tournament_stats'], axis=1
+tournaments_df_old['tournament_odds_portal'] = tournaments_df_old.apply(
+lambda x: x['tournament_odds_portal'].replace('Belgrade', 'Belgrade 2') if x['season'] in [2024] 
+else x['tournament_odds_portal'], axis=1
 )
-tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
-lambda x: x['tournament_stats'].replace('Lyon', 'Lyon 2') if x['season'] in [2008, 2009] 
-else x['tournament_stats'], axis=1
+tournaments_df_old['tournament_odds_portal'] = tournaments_df_old.apply(
+lambda x: x['tournament_odds_portal'].replace('Lyon', 'Lyon 2') if x['season'] in [2008, 2009] 
+else x['tournament_odds_portal'], axis=1
 )
-tournaments_df_old['tournament_stats'] = tournaments_df_old.apply(
-lambda x: x['tournament_stats'].replace('Santiago', 'Vina del Mar') if x['season'] in [2012, 2013] 
-else x['tournament_stats'], axis=1
+tournaments_df_old['tournament_odds_portal'] = tournaments_df_old.apply(
+lambda x: x['tournament_odds_portal'].replace('Santiago', 'Vina del Mar') if x['season'] in [2012, 2013] 
+else x['tournament_odds_portal'], axis=1
 )
-tournaments_df_old['tournament'] = 'ATP ' + tournaments_df_old['tournament_stats']
+tournaments_df_old['tournament_odds_portal'] = np.where(tournaments_df_old['tourney_level'] != 'C', 'ATP ' + tournaments_df_old['tournament_odds_portal'],
+                                                                                                    'Challenger Men ' + tournaments_df_old['tournament_odds_portal'].str.strip(' CH'))
 
-tournaments_final = pd.merge(tournaments_df_old[(tournaments_df_old['season'] >= 2009) & (tournaments_df_old['series'] != 'Challenger')], tournaments_df, how='left', on='tournament').sort_values(by=['tournament', 'season']).reset_index(drop=True)
-tournaments_final['last_edition'] = ~tournaments_final.duplicated(subset=['tournament'], keep='last')
+tournaments_final = pd.merge(tournaments_df_old, tournaments_df, how='left', on='tournament_odds_portal').sort_values(by=['tournament_odds_portal', 'season']).reset_index(drop=True)
+tournaments_final['last_edition'] = ~tournaments_final.duplicated(subset=['tournament_odds_portal'], keep='last')
 
-tournaments_final.loc[(tournaments_final['season'].isin([2013, 2014])) & (tournaments_final['tournament_stats'] == 'Estoril'), 'url'] = '/tennis/portugal/atp-oeiras/results/'
-tournaments_final.loc[(tournaments_final['season'].isin([2020, 2021])) & (tournaments_final['tournament_stats'] == 'Astana'), 'url'] = '/tennis/kazakhstan/atp-nur-sultan/results/'
-tournaments_final.loc[(tournaments_final['season'].isin([2024])) & (tournaments_final['tournament_stats'] == 'French Open'), 'last_edition'] = False
-tournaments_final.loc[(tournaments_final['season'].isin([2017, 2018, 2019, 2020])) & (tournaments_final['tournament_stats'] == 'Finals - Turin'), 'url'] = '/tennis/world/atp-finals-london/results/'
-tournaments_final.loc[(tournaments_final['season'].isin([2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016])) & (tournaments_final['tournament_stats'] == 'Finals - Turin'), 'url'] = '/tennis/world/atp-world-tour-finals-london/results/'
-tournaments_final.loc[(tournaments_final['season'] <= 2022) & (tournaments_final['tournament_stats'] == 'Next Gen Finals - Jeddah'), 'url'] = '/tennis/world/atp-next-gen-finals-milan/results/'
-tournaments_final.loc[(tournaments_final['season'] == 2021) & (tournaments_final['tournament_stats'] == 'Olympic Games'), 'season'] = 2020
+tournaments_final.loc[(tournaments_final['season'].isin([2013, 2014])) & (tournaments_final['tournament_odds_portal'] == 'ATP Estoril'), 'url'] = '/tennis/portugal/atp-oeiras/results/'
+tournaments_final.loc[(tournaments_final['season'].isin([2020, 2021])) & (tournaments_final['tournament_odds_portal'] == 'ATP Astana'), 'url'] = '/tennis/kazakhstan/atp-nur-sultan/results/'
+tournaments_final.loc[(tournaments_final['season'].isin([2024])) & (tournaments_final['tournament_odds_portal'] == 'ATP French Open'), 'last_edition'] = False
+tournaments_final.loc[(tournaments_final['season'].isin([2017, 2018, 2019, 2020])) & (tournaments_final['tournament_odds_portal'] == 'ATP Finals - Turin'), 'url'] = '/tennis/world/atp-finals-london/results/'
+tournaments_final.loc[(tournaments_final['season'] <= 2016) & (tournaments_final['tournament_odds_portal'] == 'ATP Finals - Turin'), 'url'] = '/tennis/world/atp-world-tour-finals-london/results/'
+tournaments_final.loc[(tournaments_final['season'] <= 2022) & (tournaments_final['tournament_odds_portal'] == 'ATP Next Gen Finals - Jeddah'), 'url'] = '/tennis/world/atp-next-gen-finals-milan/results/'
+tournaments_final.loc[(tournaments_final['season'] == 2021) & (tournaments_final['tournament_odds_portal'] == 'ATP Olympic Games'), 'season'] = 2020
 
-tournaments_final.to_csv('tournaments_by_season_oddsportal.csv', index=False)
+tournaments_final.to_csv('tournaments_by_season_oddsportal2.csv', index=False)
 
 
 # Games
-tournaments_final = pd.read_csv('tournaments_by_season_oddsportal.csv')
-games = pd.read_csv('games_oddsportal2.csv')
+tournaments_final = pd.read_csv('tournaments_by_season_oddsportal2.csv')
+tournaments_final = tournaments_final[tournaments_final['season'] >= 2009].reset_index(drop=True)
+games = pd.read_csv('games_oddsportal.csv')
+
 
 scraped_tournaments = list((games['game_url'].str.split('/').str[:4].str.join('/') + '/').unique())
 missing_tournaments = []
 for index, row in tqdm(tournaments_final.iterrows(), total = len(tournaments_final)):
-    url = f'https://www.oddsportal.com{row["url"]}' if row['last_edition'] == True else f'https://www.oddsportal.com{row["url"].replace('/results/', '')}-{row["season"]}/results/'
-    if url.replace(f'https://www.oddsportal.com','').replace('results/','') not in scraped_tournaments:
-        print(url)
-        missing_tournaments.append(url)
+    if row["url"] is not np.nan:
+        url = f'https://www.oddsportal.com{row["url"]}' if row['last_edition'] == True else f'https://www.oddsportal.com{row["url"].replace('/results/', '')}-{row["season"]}/results/'
+        if url.replace(f'https://www.oddsportal.com','').replace('results/','') not in scraped_tournaments:
+            print(url)
+            missing_tournaments.append(url)
 
 data = []
 for url in tqdm(missing_tournaments):
@@ -174,99 +175,19 @@ for url in tqdm(missing_tournaments):
 new_games = pd.DataFrame(data)
 
 games = pd.concat([games, new_games], axis = 0).reset_index(drop=True)
-games.to_csv('games_oddsportal2.csv', index=False)
+games.to_csv('games_oddsportal.csv', index=False)
 
 
-#<------------------------------------------------------------
-# Games odds
+
+
+tournaments_final = pd.read_csv('tournaments_by_season_oddsportal2.csv')
+tournaments_final.rename(columns={'url':'tournament_url'}, inplace=True)
 games = pd.read_csv('games_oddsportal.csv')
 
-with open('odds_data2.json', 'r') as json_file:
-    odds_data = json.load(json_file)
+games.insert(0, 'tournament_url', (games['game_url'].str.split('/').str[:4].apply(lambda parts: '/'.join(parts[:3] + [re.sub(r'-\d{4}$', '', parts[3])]) + '/results/')))
+games.insert(1, 'season', games['game_url'].str.extract(r'-(\d{4})/').astype('float'))
 
-chrome_options = webdriver.ChromeOptions()
-#user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-#chrome_options.add_argument(f"--user-agent={user_agent}")
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('--no-sandbox')
-driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
-count = 0
-for index, row in tqdm(games.iterrows(), total = len(games)):
-    if row['comment'] not in ['canc.', 'w.o.', 'award.'] and row['game_url'] is not None and row['game_url'] not in [game['game_url'] for game in odds_data]:
-        try:
-            row_dict = row.to_dict()
-            url = f'https://www.oddsportal.com{row["game_url"]}'
-            driver.get(url)
-            
-            wait = WebDriverWait(driver, 1)
-            try:
-                cookie_button = wait.until(expected_conditions.presence_of_element_located((By.XPATH, ".//button[@id='onetrust-reject-all-handler']")))
-                if cookie_button.is_displayed():
-                    cookie_button.click()
-            except:
-                pass
-            try:
-                survey_button = wait.until(expected_conditions.presence_of_element_located((By.XPATH, ".//a[@class='sg-js-d']")))
-                if survey_button.is_displayed():
-                    survey_button.click()
-            except:
-                pass
-            
-            closing_time_items = wait.until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[@data-testid='game-time-item']")))[0].find_elements(By.XPATH, "//p/following-sibling::p")
-            closing_time = pd.to_datetime(closing_time_items[0].text + closing_time_items[1].text, format = '%d %b %Y,%H:%M')
-            
-            bookmakers = wait.until(expected_conditions.presence_of_all_elements_located((By.XPATH, "//div[@data-testid='over-under-expanded-row']")))
-            bookmakers_odds = []
-            for bookmaker in bookmakers:
-                bookmaker_name = bookmaker.find_element(By.TAG_NAME, "p").text
-                odds_dict = {'bookmaker': bookmaker_name}
-                
-                odd_containers = bookmaker.find_elements(By.XPATH, ".//div[@data-testid='odd-container']")
-                for i,odd_container in enumerate(odd_containers, 1):
-                    odds = odd_container.find_element(By.TAG_NAME, "p")
-                    closing_odd = float(odds.text) if odds.text != '-' else None
-                    
-                    driver.execute_script("""arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});""", odds)
-                    sleep(0.03)  
-                    
-                    wait.until(expected_conditions.element_to_be_clickable(odds)).click() 
-                    
-                    try:
-                        opening_odds_element = wait.until(expected_conditions.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Opening odds')]"))).find_elements(By.XPATH, "./following-sibling::*")[0].text
-                        opening_time = pd.to_datetime(str(closing_time.year) + " " + opening_odds_element.split("\n")[0], format='%Y %d %b, %H:%M')
-                        opening_odd = float(opening_odds_element.split("\n")[1])
-                    except:
-                        opening_time = None
-                        opening_odd = None
-                    
-                    if opening_time is not None:
-                        odds_dict[f'opening_time'] = opening_time 
-                    odds_dict[f'closing_time'] = closing_time
-                    odds_dict[f'opening_odds{i}'] = american_odds_conversor(float(opening_odd)) if opening_odd and (float(opening_odd) > 100 or float(opening_odd) < -100) and opening_odd is not None else opening_odd
-                    odds_dict[f'clossing_odds{i}'] = american_odds_conversor(float(closing_odd)) if closing_odd and (float(closing_odd) > 100 or float(closing_odd) < -100) and closing_odd is not None else closing_odd
-                bookmakers_odds.append(odds_dict)
-            row_dict['odds'] = bookmakers_odds
-            odds_data.append(row_dict)
-        except Exception as e:
-            print(f"Error on {url}: {e}")
-        sleep(1+random())
-        
-        count += 1
-        if count % 500 == 0:
-            with open('odds_data2.json', 'w') as json_file:
-                json.dump(odds_data, json_file, indent=4, default=str)
-            print(f"Saved {count} games to odds_data2.json")
-driver.quit()
+missing_mask = games['game_url'].str.extract(r'-(\d{4})/')[0].isna()
+games['season'] = games['season'].fillna(method='bfill').astype(int)
 
-with open('odds_data.json', 'w') as json_file:
-    json.dump(odds_data, json_file, indent=4, default=str)
-
-expanded_data = []
-for game in odds_data:
-    base_data = {key: value for key, value in game.items() if key != 'odds'}
-    for odds_entry in game.get('odds', []):
-        expanded_row = {**base_data, **odds_entry}
-        expanded_data.append(expanded_row)
-
-print(pd.DataFrame(expanded_data))
-
+pd.merge(tournaments_final, games, on = ['tournament_url', 'season'], how = 'right').to_csv('games_oddsportal2.csv', index=False)
