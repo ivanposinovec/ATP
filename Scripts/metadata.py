@@ -106,6 +106,58 @@ tournaments_stats_by_season = games[['tourney_date', 'tourney_name', 'tourney_le
 tournaments_stats_by_season.rename(columns={'tourney_name':'tournament_stats'},inplace=True)
 pd.merge(tournaments_by_season, tournaments_stats_by_season, on = ['tournament_stats', 'season'], how = 'left').sort_values(by = ['tournament_stats', 'season']).to_csv('tournaments_by_season2.csv', index=False)
 
+#<------------------------------------------------------------------------------------------------------------- 
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from time import sleep
+from random import random
+from datetime import datetime
+
+
+# Tournament Speed
+seasons = list(range(2001, 2026))
+chrome_options = Options()
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
+tournaments_speed_df = pd.DataFrame()
+for season in tqdm(seasons):
+    url = f'https://www.tennisabstract.com/cgi-bin/surface-speed.cgi?year={season}' if season != 2025 else 'https://tennisabstract.com/reports/atp_surface_speed.html'
+    driver.get(url)
+    sleep(2 + random())
+    
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    table = soup.find('table', id = 'surface-speed') if season != 2025 else soup.find('table', id = 'reportable') 
+    if table and len(table) > 0:
+        df = pd.read_html(StringIO(str(table)))[0]
+        df.insert(0, 'season', season)
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.drop(columns='Ace%', inplace=True)
+        if season == 2025:
+            df = df[df['Date'] >= datetime(2024, 12, 26)].reset_index(drop=True)
+        df = df.rename(columns = {'Surface\xa0Speed':'Surface Speed'}).sort_values(['Date', 'Tournament']).reset_index(drop=True)
+        tournaments_speed_df = pd.concat([tournaments_speed_df, df], axis = 0)
+    sleep(3+random())
+driver.quit()
+
+tournaments_speed_df = pd.read_csv('test.csv')
+tournaments_speed_df.rename(columns={'Tournament':'tournament_stats', 'Date':'tourney_date', 'Surface Speed':'surface_speed'}, inplace=True)
+
+tournaments_speed_df.loc[(tournaments_speed_df['tournament_stats'] == 'US Open') & (tournaments_speed_df['season'].isin([2020, 2021, 2022, 2023, 2024])), 'tournament_stats'] = 'Us Open'
+tournaments_speed_df.loc[(tournaments_speed_df['tournament_stats'] == 'Belgrade') & (tournaments_speed_df['season'].isin([2022])), 'tournament_stats'] = 'Belgrade '
+tournaments_speed_df[tournaments_speed_df['season'] == 2021]
+
+tournaments_by_season_df = pd.read_csv('tournaments_by_season_oddsportal2.csv')
+tournaments_by_season_df['tourney_date'] = pd.to_datetime(tournaments_by_season_df['tourney_date'])
+
+final_df = tournaments_by_season_df.merge(tournaments_speed_df[['tournament_stats', 'season', 'surface_speed']], on = ['tournament_stats', 'season'], how = 'left', indicator=False)
+tournaments_by_season_df.to_csv('tournaments_by_season_oddsportal2.csv', index=False)
+
 
 #<------------------------------------------------------------------------------------------------------------- 
 # Players database
