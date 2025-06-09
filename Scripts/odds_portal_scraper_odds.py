@@ -83,8 +83,8 @@ for index, row in tqdm(games_to_scrape.iterrows(), total = len(games_to_scrape))
                     if opening_time is not None:
                         odds_dict[f'opening_time'] = opening_time 
                     odds_dict[f'closing_time'] = closing_time
-                    odds_dict[f'opening_odds{i}'] = american_odds_conversor(float(opening_odd)) if opening_odd and (float(opening_odd) > 100 or float(opening_odd) < -100) and opening_odd is not None else opening_odd
-                    odds_dict[f'clossing_odds{i}'] = american_odds_conversor(float(closing_odd)) if closing_odd and (float(closing_odd) > 100 or float(closing_odd) < -100) and closing_odd is not None else closing_odd
+                    odds_dict[f'opening_odds{i}'] = american_odds_conversor(float(opening_odd)) if opening_odd and (float(opening_odd) >= 100 or float(opening_odd) <= -100) and opening_odd is not None else opening_odd
+                    odds_dict[f'closing_odds{i}'] = american_odds_conversor(float(closing_odd)) if closing_odd and (float(closing_odd) >= 100 or float(closing_odd) <= -100) and closing_odd is not None else closing_odd
                 bookmakers_odds.append(odds_dict)
             row_dict['odds'] = bookmakers_odds
             odds_data_current_session.append(row_dict)
@@ -144,4 +144,29 @@ combined_odds_data = odds_data + odds_data3
 combined_odds_data = list({item['game_url']: item for item in combined_odds_data if 'game_url' in item}.values())
 with open('odds_data.json', 'w') as json_file:
     json.dump(combined_odds_data, json_file, indent=4, default=str)
+"""
+
+
+"""
+with open('odds_data.json', 'r') as json_file:
+    odds_data = json.load(json_file)
+
+for i, game in enumerate(odds_data):
+    for j, bookmaker in enumerate(game['odds']):
+        if (bookmaker['opening_odds1'] == 100) and (bookmaker['opening_odds2'] is not None) and (bookmaker['opening_odds2'] > 1.1):
+            odds_data[i]['odds'][j]['opening_odds1'] = american_odds_conversor(float(bookmaker['opening_odds1']))
+            print(f'Modified {game['game_url']} {game['player1']} Opening odds ({bookmaker['bookmaker']})')
+        if (bookmaker['opening_odds2'] == 100) and (bookmaker['opening_odds1'] is not None) and (bookmaker['opening_odds1'] > 1.1):
+            odds_data[i]['odds'][j]['opening_odds2'] = american_odds_conversor(float(bookmaker['opening_odds2']))
+            print(f'Modified {game['game_url']} {game['player2']} Opening odds ({bookmaker['bookmaker']})')
+        if (bookmaker['clossing_odds1'] == 100) and (bookmaker['clossing_odds2'] is not None) and (bookmaker['clossing_odds2'] > 1.1): 
+            odds_data[i]['odds'][j]['clossing_odds1'] = american_odds_conversor(float(bookmaker['clossing_odds1']))
+            print(f'Modified {game['game_url']} {game['player1']} Closing odds ({bookmaker['bookmaker']})')
+        if (bookmaker['clossing_odds2'] == 100) and (bookmaker['clossing_odds1'] is not None) and (bookmaker['clossing_odds1'] > 1.1):
+            odds_data[i]['odds'][j]['clossing_odds2'] = american_odds_conversor(float(bookmaker['clossing_odds2']))
+            print(f'Modified {game['game_url']} {game['player2']} Closing odds ({bookmaker['bookmaker']}) - {i} {j}')
+
+
+with open('odds_data.json', 'w') as json_file:
+    json.dump(odds_data, json_file, indent=4, default=str)
 """

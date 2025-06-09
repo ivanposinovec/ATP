@@ -95,13 +95,8 @@ games.insert(games.columns.get_loc('surface'), 'tourney_ioc', tourney_series_col
 
 
 # Odds data
-with open('odds_data.json', 'r') as json_file:
-    odds_data = json.load(json_file)
-
-odds = pd.DataFrame(odds_data)
-odds.drop(columns=['tournament_stats', 'season', 'tournament_url', 'winner', 'loser'], inplace=True)
-
 games_odds = pd.read_csv('games_oddsportal3.csv')
+
 games_odds.rename(columns={'tournament_stats':'tourney_name'}, inplace=True)
 games_odds = games_odds[(~games_odds['comment'].isin(['canc.', 'w.o.', 'award.', 'ret.']))].reset_index(drop=True)
 
@@ -123,7 +118,6 @@ games_odds.loc[games_odds[games_odds['loser'] == 'Zhang Z.'].index, 'loser'] = g
 games_odds.loc[games_odds[games_odds['player1'] == 'Zhang Z.'].index, 'player1'] = games_odds[games_odds['player1'] == 'Zhang Z.']['game_url'].apply(extract_zhang_full_name).replace({'Zhang Zhizhen':'Zhang Zh.', 'Zhang Ze':'Zhang Ze.'})
 games_odds.loc[games_odds[games_odds['player2'] == 'Zhang Z.'].index, 'player2'] = games_odds[games_odds['player2'] == 'Zhang Z.']['game_url'].apply(extract_zhang_full_name).replace({'Zhang Zhizhen':'Zhang Zh.', 'Zhang Ze':'Zhang Ze.'})
 
-odds = pd.merge(games_odds[['game_url', 'season', 'tourney_name', 'tournament_url', 'winner', 'loser']], odds, on = ['game_url'], how = 'inner')
 
 players_dict = {' Hajek J.':'Hajek J.', 'Al Ghareeb M.':'Ghareeb M.', 'Alvarez E.':'Benfele Alvarez E.', 'Ancic I.':'Ancic M.', 'Andersen J.F.':'Frode Andersen J.', 'Ascione A.':'Ascione T.',
 'Auger-Aliassime F.':'Auger Aliassime F.', 'Bachelot J.F':'Francois Bachelot J.', 'Barrios M.':'Barrios Vera T.', 'Barrios Vera M.T.':'Barrios Vera T.', 'Bautista R.':'Bautista Agut R.',
@@ -218,14 +212,14 @@ players_dict = {' Hajek J.':'Hajek J.', 'Al Ghareeb M.':'Ghareeb M.', 'Alvarez E
 'Haider-Maurer M.':'Haider Maurer M.', 'Shane J.':'S Shane J,', 'McHugh A.':'Mchugh A.', 'Crowley K.':'Patrick Crowley K.', 'Grant M.':'Grant Gd13 M.', 'Bloom S.': 'D Bloom S.',
 'Montes-De La Torre I.':'Montes De La Torre I.', 'Mo Y. C.':'Cong Mo Y.', 'Gard C.':'Ionut Gard C.', 'Hernandez A.':'Alejandro Hernandez Serrano J.', 'Nunes J.': 'Ricardo Nunes J.'}
 
-odds['winner'].replace(players_dict, inplace=True)
-odds['loser'].replace(players_dict, inplace=True)
-odds['player1'].replace(players_dict, inplace=True)
-odds['player2'].replace(players_dict, inplace=True)
+games_odds['winner'].replace(players_dict, inplace=True)
+games_odds['loser'].replace(players_dict, inplace=True)
+games_odds['player1'].replace(players_dict, inplace=True)
+games_odds['player2'].replace(players_dict, inplace=True)
 
 #print(odds[odds['loser'].isna()]) # ver para retiros
 # Imput missing winners and losers
-missing_winner_odds = odds[(odds['comment'] == 'ret.') | ((odds['tourney_name'] == 'Indian Wells Masters') & (odds['season'] == 2009)) | ((odds['tourney_name'] == 'Wimbledon') & (odds['season'] == 2009))].drop(columns = ['winner', 'loser'])
+missing_winner_odds = games_odds[(games_odds['comment'] == 'ret.') | ((games_odds['tourney_name'] == 'Indian Wells Masters') & (games_odds['season'] == 2009)) | ((games_odds['tourney_name'] == 'Wimbledon') & (games_odds['season'] == 2009))].drop(columns = ['winner', 'loser'])
 merged1 = missing_winner_odds.merge(
     games[['winner', 'loser', 'tourney_name', 'season']],
     left_on=['player1', 'player2', 'tourney_name', 'season'],
@@ -246,15 +240,15 @@ merged2['match_order'] = 'reversed'
 combined = pd.concat([merged1, merged2], ignore_index=True)
 for index, row in tqdm(combined.iterrows(), total = len(combined)):
     mask = (
-        (odds['game_url'] == row['game_url']) & ((odds['comment'] == 'ret.') |
-        ((odds['tourney_name'] == 'Indian Wells Masters') & (odds['season'] == 2009)) |
-        ((odds['tourney_name'] == 'Wimbledon') & (odds['season'] == 2009)))
+        (games_odds['game_url'] == row['game_url']) & ((games_odds['comment'] == 'ret.') |
+        ((games_odds['tourney_name'] == 'Indian Wells Masters') & (games_odds['season'] == 2009)) |
+        ((games_odds['tourney_name'] == 'Wimbledon') & (games_odds['season'] == 2009)))
     )
-    odds.loc[mask, ['winner', 'loser']] = row[['winner', 'loser']].values
+    games_odds.loc[mask, ['winner', 'loser']] = row[['winner', 'loser']].values
 
 
-#[player for player in list(odds['loser'].unique()) if player not in list(games['loser'].unique())]
-full_df = pd.merge(games, odds, on = ['winner', 'loser', 'tourney_name', 'season'], how = 'left', indicator=False)
+#[player for player in list(games_odds['loser'].unique()) if player not in list(games['loser'].unique())]
+full_df = pd.merge(games, games_odds, on = ['winner', 'loser', 'tourney_name', 'season'], how = 'left', indicator=False)
 full_df.drop(columns=['odds1','odds2'], inplace=True)
 #full_df[full_df['_merge'] == 'right_only'].sort_values(['tourney_name', 'season'])[['winner', 'loser', 'tourney_name', 'season']]
 

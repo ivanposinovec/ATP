@@ -730,7 +730,6 @@ games['home_match'] = np.where((games['favored_ioc'] == games['tourney_ioc']) & 
                                     np.where((games['favored_ioc'] != games['tourney_ioc']) & (games['underdog_ioc'] == games['tourney_ioc']), 1, 0)))
 
 
-
 # Feature selection
 features_names = ['week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff'] + features_to_keep
 features_names = [feature for feature in features_names if feature not in ['inactivity_diff', 'inactive_match']]
@@ -876,7 +875,6 @@ opt = BayesSearchCV(
 )
 opt.fit(X_train_val_scaled[['win_pct_diff']], y_train_val)
 opt.fit(X_train_val_scaled, y_train_val)
-
 
 # Extract the best parameters
 best_params = opt.best_params_
