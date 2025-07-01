@@ -1,6 +1,5 @@
 import pandas as pd
 from tqdm import tqdm
-import json
 import re
 pd.set_option('display.max_rows',600)
 
@@ -84,18 +83,22 @@ for index, row in tqdm(games.iterrows(), total = len(games)):
     elif row['loser_name'] == 'Michael Redlicki':
         games.loc[index, 'loser'] = 'Redlicki Mi.'
 
-tournaments = pd.read_csv('tournaments_by_season_oddsportal2.csv')
+tournaments = pd.read_csv('tournaments_by_season_oddsportal.csv')
 tournaments.rename(columns={'tournament_stats':'tourney_name', 'series':'tourney_series', 'country_code':'tourney_ioc'}, inplace=True)
+tournaments.loc[tournaments['tourney_name'] == 'Tokyo Olympics', 'season'] = 2021
 
-games = pd.merge(games, tournaments[['tourney_name', 'season', 'tourney_series', 'tourney_ioc']], on=['tourney_name', 'season'], how='left')
+
+games = pd.merge(games, tournaments[['tourney_name', 'season', 'tourney_series', 'tourney_ioc', 'surface_speed']], on=['tourney_name', 'season'], how='left')
 tourney_series_col = games.pop('tourney_series')
 games.insert(games.columns.get_loc('surface'), 'tourney_series', tourney_series_col)
-tourney_series_col = games.pop('tourney_ioc')
-games.insert(games.columns.get_loc('surface'), 'tourney_ioc', tourney_series_col)
+tourney_ioc_col = games.pop('tourney_ioc')
+games.insert(games.columns.get_loc('surface'), 'tourney_ioc', tourney_ioc_col)
+surface_speed_col = games.pop('surface_speed')
+games.insert(games.columns.get_loc('surface'), 'surface_speed', surface_speed_col)
 
 
 # Odds data
-games_odds = pd.read_csv('games_oddsportal3.csv')
+games_odds = pd.read_csv('games_oddsportal.csv')
 
 games_odds.rename(columns={'tournament_stats':'tourney_name'}, inplace=True)
 games_odds = games_odds[(~games_odds['comment'].isin(['canc.', 'w.o.', 'award.', 'ret.']))].reset_index(drop=True)

@@ -1,12 +1,6 @@
 import pandas as pd
 import numpy as np
-import os
-from sklearn import preprocessing
-from sklearn.preprocessing import OneHotEncoder
-from datetime import timedelta
 import pickle
-import matplotlib.pyplot as plt
-import seaborn as sns
 import math
 from statsmodels.discrete.conditional_models import ConditionalLogit
 import re
@@ -50,13 +44,14 @@ def compute_elo_rankings(data):
 def parse_score(score):
     if pd.notna(score):
         sets = score.split()
-        sets = [s.strip('?') for s in sets if not any(keyword in s for keyword in ['RET', 'W/O', 'DEF', 'Default', 'ABD', 'Walkover', 'Played', 'and', 'unfinished', 'Def.', 'RE', '>', "Ret'd", 'UNK'])]
+        sets = [s.strip('?') for s in sets if not any(keyword in s for keyword in ['RET', 'W/O', 'DEF', 'Default', 'ABD', 'Walkover', 'Played', 'and', 'unfinished', 'Def.', 'RE', '>', "Ret'd", 'UNK', 'UNP', 'ABN'])]
         
         set_details = []
-        
         for set_score in sets:
             if '(' in set_score:
                 set_score = set_score.split('(')[0]
+            if '[' in set_score:
+                set_score = '1-0'
             games = list(map(int, set_score.split('-')))
             set_details.append(games)
         
@@ -108,6 +103,8 @@ def rank_group(rank):
     else:
         return 'over_200'
 
+def elo_probability(elo_a, elo_b):
+    return 1 / (1 + 10 ** ((elo_b - elo_a) / 400))
 
 def weighted_average(values, weights):
     valid_data = values.dropna()

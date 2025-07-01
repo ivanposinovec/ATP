@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 from tqdm import tqdm
 import requests
 from Scripts.functions import *
@@ -145,18 +144,16 @@ for season in tqdm(seasons):
     sleep(3+random())
 driver.quit()
 
-tournaments_speed_df = pd.read_csv('test.csv')
 tournaments_speed_df.rename(columns={'Tournament':'tournament_stats', 'Date':'tourney_date', 'Surface Speed':'surface_speed'}, inplace=True)
 
 tournaments_speed_df.loc[(tournaments_speed_df['tournament_stats'] == 'US Open') & (tournaments_speed_df['season'].isin([2020, 2021, 2022, 2023, 2024])), 'tournament_stats'] = 'Us Open'
 tournaments_speed_df.loc[(tournaments_speed_df['tournament_stats'] == 'Belgrade') & (tournaments_speed_df['season'].isin([2022])), 'tournament_stats'] = 'Belgrade '
-tournaments_speed_df[tournaments_speed_df['season'] == 2021]
 
-tournaments_by_season_df = pd.read_csv('tournaments_by_season_oddsportal2.csv')
+tournaments_by_season_df = pd.read_csv('tournaments_by_season_oddsportal.csv')
 tournaments_by_season_df['tourney_date'] = pd.to_datetime(tournaments_by_season_df['tourney_date'])
 
 final_df = tournaments_by_season_df.merge(tournaments_speed_df[['tournament_stats', 'season', 'surface_speed']], on = ['tournament_stats', 'season'], how = 'left', indicator=False)
-tournaments_by_season_df.to_csv('tournaments_by_season_oddsportal2.csv', index=False)
+final_df.to_csv('tournaments_by_season_oddsportal.csv', index=False)
 
 
 #<------------------------------------------------------------------------------------------------------------- 
