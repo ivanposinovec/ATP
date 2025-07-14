@@ -46,7 +46,6 @@ games['underdog_win_prob'] = 1 - games['favored_win_prob']
 games['favored_game_score'] = np.where(games['favored_win'] == 1, games['underdog_win_prob'], -games['favored_win_prob'])
 games['underdog_game_score'] = np.where(games['favored_win'] == 1, -games['underdog_win_prob'], games['favored_win_prob'])
 
-
 games['favored_tpt_won_pct'] = (games['favored_svpt_won']+games['favored_rtpt_won'])/(games['favored_svpt']+games['underdog_svpt'])
 games['favored_svpt_won_pct'] = (games['favored_svpt_won'])/(games['favored_svpt'])
 games['favored_1st_in_pct'] = (games['favored_1st_in'])/(games['favored_svpt'])
@@ -97,10 +96,10 @@ full_games = full_games[(full_games['season'] >= 2006) & (full_games['season'] <
 
 # PCA
 # One-hot encoding of surface
-features = ['player_game_score', 'player_ace_pct', 'player_df_pct', 'player_tpt_won_pct', 'player_svpt_won_pct', 'player_1st_in_pct', 'player_1st_won_pct', 'player_2nd_won_pct', 'player_bp_saved_pct', 'player_rtpt_won_pct',
-        'player_1st_return_won_pct', 'player_2nd_return_won_pct', 'player_avg_bp_won_pct', 'player_dominance_ratio', 'surface_Hard', 'surface_Grass', 'surface_Clay']
 features = ['player_ace_pct', 'player_df_pct', 'player_1st_in_pct', 'player_1st_won_pct', 'player_2nd_won_pct',
         'player_1st_return_won_pct', 'player_2nd_return_won_pct', 'player_avg_bp_won_pct', 'surface_Hard', 'surface_Grass', 'surface_Clay', 'player_ht']
+features = ['player_game_score', 'player_ace_pct', 'player_df_pct', 'player_tpt_won_pct', 'player_svpt_won_pct', 'player_1st_in_pct', 'player_1st_won_pct', 'player_2nd_won_pct', 'player_bp_saved_pct', 'player_rtpt_won_pct',
+        'player_1st_return_won_pct', 'player_2nd_return_won_pct', 'player_avg_bp_won_pct', 'player_dominance_ratio', 'surface_Hard', 'surface_Grass', 'surface_Clay']
 full_games = full_games.replace(np.inf, np.nan).dropna(subset=features)
 
 seasons = list(range(2009, 2026))
@@ -156,8 +155,8 @@ for season in tqdm(seasons):
             players_df.loc[index, f'player_avg_PCA{i}'] = weighted_average(player_log[f'PCA{i}'], player_log['time_weight'])
     
     PCA_avg = players_df[['player'] + [f'player_avg_PCA{i}' for i in range(0, n_components)]].set_index('player')
-    K_range = range(2, 20)
     
+    K_range = range(2, 20)
     silhouette_scores = []
     for k in K_range:
         kmeans = KMeans(n_clusters=k, random_state=42)
@@ -211,17 +210,10 @@ for season in tqdm(seasons):
         columns='rival',
         aggfunc='mean'
     ).reindex(index=players, columns=players)
-    score_df = score_df.iloc[:10, :10]
+    #score_df = score_df.iloc[:60, :60]
     score_matrix = score_df.values
     games_mask = ~np.isnan(score_matrix)
     print(score_df)
-    
-    from scipy.spatial.distance import pdist, squareform
-    score_df = score_df.fillna(0)
-    score_matrix = score_df.values
-    dist_matrix = squareform(pdist(score_matrix, metric='correlation'))
-    similarity_df = pd.DataFrame(dist_matrix, index=score_df.index, columns=score_df.index)
-    print(similarity_df)
     
     def style_vector(player, exclude):
         return [score_df.loc[player, other] for other in score_df.columns if other != player and other != exclude]
@@ -238,8 +230,7 @@ for season in tqdm(seasons):
                 vec_a = vec_a[mask]
                 vec_b = vec_b[mask]
                 #distance = euclidean(vec_a, vec_b) / len(vec_a) if len(vec_a) > 0 else np.nan
-                distance = normalized_distance(vec_a, vec_b, len(vec_a)) if len(vec_a) > 0 else np.nan
-                #distance = correlation(vec_a, vec_b)
+                distance = correlation(vec_a, vec_b)
                 distance_matrix.loc[player_a, player_b] = distance
     print(distance_matrix)
     
@@ -366,16 +357,18 @@ for season in tqdm(seasons):
     P_scaled = StandardScaler().fit_transform(P)
     Q_scaled = StandardScaler().fit_transform(Q)
     P_players_df = pd.DataFrame({'player': score_df.index}).set_index('player')
-    Q_players_df = pd.DataFrame({'rival': score_df.columns}).set_index('rival')
+    Q_players_df = pd.DataFrame({'player': score_df.columns}).set_index('player')
     P_players_df[[f'off_latent_factor{i}' for i in range(0, num_factors)]] = P_scaled
     Q_players_df[[f'def_latent_factor{i}' for i in range(0, num_factors)]] = Q_scaled
     
     players_df.drop(columns=[col for col in players_df.columns if col.startswith('off_latent') or col.startswith('def_latent') or col.startswith('attacker_cluster')], inplace=True)
+    players_df.set_index('player', inplace=True)
     players_df = pd.concat([players_df, P_players_df, Q_players_df], axis=1)
     
+    """
     scaler = StandardScaler()
-    #X_scaled = pd.concat([pd.DataFrame(scaler.fit_transform(players_df[features]),columns=features, index = players_df.index), players_df[[f'off_latent_factor{i}' for i in range(0, num_factors)]]], axis = 1)
-    #X_scaled = pd.DataFrame(scaler.fit_transform(players_df[features]),columns=features)
+    X_scaled = pd.concat([pd.DataFrame(scaler.fit_transform(players_df[features]),columns=features, index = players_df.index), players_df[[f'off_latent_factor{i}' for i in range(0, num_factors)]]], axis = 1)
+    X_scaled = pd.DataFrame(scaler.fit_transform(players_df[features]),columns=features)
     
     pca = PCA(n_components=len(X_scaled.columns))
     pca.fit(X_scaled)
@@ -387,44 +380,63 @@ for season in tqdm(seasons):
     players_df = players_df.loc[:, ~players_df.columns.str.startswith('PCA')]
     n_components = 2 #int(input("Enter the number of components to keep based on cumulative variance: "))
     players_df[[f'PCA{i}' for i in range(0, n_components)]] = pca.transform(X_scaled)[:, :n_components]
-    
-    silhouette_scores = []
-    #factors = [f'latent_factor{i}' for i in range(0, num_factors)] #+ [f'player_avg_PC{i}' for i in range(0, 6)]
     #factors = [f'PCA{i}' for i in range(0, n_components)]
-    factors = [f'off_latent_factor{i}' for i in range(0, num_factors)]
+    
+    #factors = [f'off_latent_factor{i}' for i in range(0, num_factors)] + [f'def_latent_factor{i}' for i in range(0, num_factors)] + [f'player_avg_PCA{i}' for i in range(0, n_components)]
+    """
+
+    off_factors = [f'off_latent_factor{i}' for i in range(0, num_factors)]
+    silhouette_scores = []
     for k in K_range:
         kmeans = KMeans(n_clusters=k, random_state=42)
-        labels = kmeans.fit_predict(players_df[factors].values)
-        score = silhouette_score(players_df[factors].values, labels)
+        labels = kmeans.fit_predict(players_df[off_factors].values)
+        score = silhouette_score(players_df[off_factors].values, labels)
         
-        silhouette_scores.append(score)
+        silhouette_scores.append(float(score))
     silhouette_scores_df = pd.DataFrame({'k': K_range, 'silhouette_score': silhouette_scores})
+    print(silhouette_scores_df)
     
-    num_clusters = silhouette_scores_df.loc[np.argmax(silhouette_scores_df['silhouette_score']), 'k']
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-    players_df['attacker_cluster'] = kmeans.fit_predict(players_df[factors].values) 
+    num_off_clusters = silhouette_scores_df.loc[np.argmax(silhouette_scores_df['silhouette_score']), 'k']
+    kmeans = KMeans(n_clusters=num_off_clusters, random_state=42)
+    players_df['attacker_cluster'] = kmeans.fit_predict(players_df[off_factors].values) 
     print(players_df.sort_values('attacker_cluster'))
     
     value_combinations = list(combinations(range(0, num_factors), 2))
     for i,j in value_combinations:
         plt.figure(figsize=(8, 6))
-        plt.scatter(players_df[factors].values[:, i], players_df[factors].values[:, j], c=players_df['attacker_cluster'], cmap='tab10', s=100)
+        plt.scatter(players_df[off_factors].values[:, i], players_df[off_factors].values[:, j], c=players_df['attacker_cluster'], cmap='tab10', s=100)
         for m, name in enumerate(players_df.index):
-            plt.text(players_df[factors].values[m, i]+0.02, players_df[factors].values[m, j]+0.02, name, fontsize=9)
-
+            plt.text(players_df[off_factors].values[m, i]+0.02, players_df[off_factors].values[m, j]+0.02, name, fontsize=9)
+        
         plt.title("Offensive Player Style Clusters")
         plt.xlabel(f"Latent Style Factor {i+1}")
         plt.ylabel(f"Latent Style Factor {j+1}")
         plt.grid(True)
         plt.tight_layout()
         plt.show()
-
+    
+    def_factors = [f'def_latent_factor{i}' for i in range(0, num_factors)]
+    silhouette_scores = []
+    for k in K_range:
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        labels = kmeans.fit_predict(players_df[def_factors].values)
+        score = silhouette_score(players_df[def_factors].values, labels)
+        
+        silhouette_scores.append(float(score))
+    silhouette_scores_df = pd.DataFrame({'k': K_range, 'silhouette_score': silhouette_scores})
+    print(silhouette_scores_df)
+    
+    num_def_clusters = silhouette_scores_df.loc[np.argmax(silhouette_scores_df['silhouette_score']), 'k']
+    kmeans = KMeans(n_clusters=num_def_clusters, random_state=42)
+    players_df['defender_cluster'] = kmeans.fit_predict(players_df[def_factors].values) 
+    print(players_df.sort_values('defender_cluster'))
+    
     value_combinations = list(combinations(range(0, num_factors), 2))
     for i,j in value_combinations:
         plt.figure(figsize=(8, 6))
-        plt.scatter(Q_scaled[:, i], Q_scaled[:, j], c=Q_clusters, cmap='tab10', s=100)
-        for m, name in enumerate(score_df.index):
-            plt.text(Q_scaled[m, i]+0.02, Q_scaled[m, j]+0.02, name, fontsize=9)
+        plt.scatter(players_df[def_factors].values[:, i], players_df[def_factors].values[:, j], c=players_df['defender_cluster'], cmap='tab10', s=100)
+        for m, name in enumerate(players_df.index):
+            plt.text(players_df[def_factors].values[m, i]+0.02, players_df[def_factors].values[m, j]+0.02, name, fontsize=9)
         
         plt.title("Defensive Player Style Clusters")
         plt.xlabel(f"Latent Style Factor {i+1}")
@@ -432,25 +444,137 @@ for season in tqdm(seasons):
         plt.grid(True)
         plt.tight_layout()
         plt.show()
-
-    cluster_matchups = np.zeros((num_clusters, num_clusters))
-    counts = np.zeros((num_clusters, num_clusters))
+    
+    cluster_matchups = np.zeros((num_off_clusters, num_def_clusters))
+    counts = np.zeros((num_off_clusters, num_def_clusters))
     for i in range(num_users):
         for j in range(num_items):
-            if mask[i, j]:
-                c_p = P_clusters[i]
-                c_q = Q_clusters[j]
+            if games_mask[i, j]:
+                c_p = players_df['attacker_cluster'][i]
+                c_q = players_df['defender_cluster'][j]
                 cluster_matchups[c_p, c_q] += score_matrix[i, j]
                 counts[c_p, c_q] += 1
-
+    
     mean_cluster_effect = cluster_matchups / np.maximum(counts, 1)
     sns.heatmap(mean_cluster_effect, annot=True, fmt=".2f", cmap='coolwarm')
     plt.title("Cluster-vs-Cluster Style Exploitation Matrix")
     plt.xlabel("Defender Style Cluster")
     plt.ylabel("Attacker Style Cluster")
     plt.show()
+    
+    games.loc[(games['season'] == season) & (games['favored'].isin(players_df.index)), 'favored_att_cluster'] = games.loc[(games['season'] == season) & (games['favored'].isin(players_df.index)), 'favored'].map(players_df['attacker_cluster']).astype('Int64')
+    games.loc[(games['season'] == season) & (games['favored'].isin(players_df.index)), 'favored_def_cluster'] = games.loc[(games['season'] == season) & (games['favored'].isin(players_df.index)), 'favored'].map(players_df['defender_cluster']).astype('Int64')
+    games.loc[(games['season'] == season) & (games['underdog'].isin(players_df.index)), 'underdog_att_cluster'] = games.loc[(games['season'] == season) & (games['underdog'].isin(players_df.index)), 'underdog'].map(players_df['attacker_cluster']).astype('Int64')
+    games.loc[(games['season'] == season) & (games['underdog'].isin(players_df.index)), 'underdog_def_cluster'] = games.loc[(games['season'] == season) & (games['underdog'].isin(players_df.index)), 'underdog'].map(players_df['defender_cluster']).astype('Int64')
+
+    # Predict using cluster scores against other clusters and using cluster dummies
+    games_pred = games[(~games['favored_cluster'].isna()) & 
+                       (~games['underdog_cluster'].isna()) & 
+                       (~games['elo_surface_diff'].isna())].copy()
+
+    # Cluster-vs-cluster score as feature
+    games_pred['favored_cluster_score'] = games_pred.apply(
+        lambda row: mean_cluster_effect[int(row['favored_att_cluster']), int(row['underdog_def_cluster'])], axis=1)
+    games_pred['underdog_cluster_score'] = games_pred.apply(
+        lambda row: mean_cluster_effect[int(row['underdog_att_cluster']), int(row['favored_def_cluster'])], axis=1)
+    games_pred['cluster_score_diff'] = games_pred['favored_cluster_score'] - games_pred['underdog_cluster_score']
+
+    # Create cluster dummy variables (one-hot encoding)
+    favored_cluster_dummies = pd.get_dummies(games_pred['favored_cluster'], prefix='fav_clust')
+    underdog_cluster_dummies = pd.get_dummies(games_pred['underdog_cluster'], prefix='und_clust')
+
+    # Combine features
+    X = pd.concat([
+        games_pred[['elo_surface_diff', 'cluster_score_diff']],
+        favored_cluster_dummies,
+        underdog_cluster_dummies
+    ], axis=1)
+    y = games_pred['favored_win'].values
+
+    # Fit logistic regression with cluster dummies
+    lr = LogisticRegression(max_iter=1000)
+    lr.fit(X, y)
+    y_pred_proba = lr.predict_proba(X)[:, 1]
+
+    # Print logistic regression coefficients
+    coef_df = pd.DataFrame({'feature': X.columns, 'coefficient': lr.coef_[0]})
+    print(coef_df)
+    print(f'Intercept: {lr.intercept_[0]:.4f}')
+    
+    # Evaluate
+    print(f'Log Loss (elo+cluster_score+dummies): {log_loss(y, y_pred_proba):.4f}')
+    print(f'Log Loss (elo only): {log_loss(y, elo_probability(games_pred["favored_elo_surface"], games_pred["underdog_elo_surface"])):.4f}')
 
 
+#<----------------------------------------------------------------------------------------------------
+import scipy.cluster.hierarchy as sch
+from scipy.cluster.hierarchy import fcluster
+from scipy.spatial.distance import squareform
+
+linked = sch.linkage(squareform(distance_matrix), method='ward')  # También puedes usar 'ward', 'complete', etc.
+plt.figure(figsize=(8, 5))
+dendro = sch.dendrogram(linked, labels=distance_matrix.index.tolist())
+plt.title("Clustering jerárquico de jugadores por estilo")
+plt.ylabel("Distancia")
+plt.tight_layout()
+plt.show()
+
+hier_num_clusters = fcluster(linked, t = 1, criterion='distance')
+hier_num_clusters = 8 # or set manually
+hier_clusters = fcluster(linked, hier_num_clusters, criterion='maxclust')
+hier_cluster_df = pd.DataFrame({'player': distance_matrix.index, 'hier_cluster': hier_clusters}).set_index('player').sort_values('hier_cluster')
+hier_cluster_df['hier_cluster'] -= 1
+hier_cluster_df
+print(hier_cluster_df)
+
+cluster_matchups = np.zeros((hier_num_clusters, hier_num_clusters))
+counts = np.zeros((hier_num_clusters, hier_num_clusters))
+for i, player_a in enumerate(players):
+    for j, player_b in enumerate(players):
+        if games_mask[i, j]:
+            c_p = hier_cluster_df.loc[player_a].values[0]
+            c_q = hier_cluster_df.loc[player_b].values[0]
+            cluster_matchups[c_p, c_q] += score_df.loc[player_a, player_b]
+            counts[c_p, c_q] += 1
+
+mean_cluster_effect = cluster_matchups / np.maximum(counts, 1)
+sns.heatmap(mean_cluster_effect, annot=True, fmt=".2f", cmap='coolwarm')
+plt.title("Cluster-vs-Cluster Style Exploitation Matrix")
+plt.xlabel("Defender Style Cluster")
+plt.ylabel("Attacker Style Cluster")
+plt.show()
+
+games.loc[(games['season'] == season) & (games['favored'].isin(hier_cluster_df.index)), 'favored_cluster'] = games.loc[(games['season'] == season) & (games['favored'].isin(hier_cluster_df.index)), 'favored'].map(hier_cluster_df['hier_cluster']).astype('Int64')
+games.loc[(games['season'] == season) & (games['underdog'].isin(hier_cluster_df.index)), 'underdog_cluster'] = games.loc[(games['season'] == season) & (games['underdog'].isin(hier_cluster_df.index)), 'underdog'].map(hier_cluster_df['hier_cluster']).astype('Int64')
+
+# Predict favored_win using cluster interactions and elo_diff
+games_pred = games[(~games['favored_cluster'].isna()) & 
+                   (~games['underdog_cluster'].isna()) & 
+                   (~games['elo_surface_diff'].isna())].copy()
+
+games_pred['cluster_score'] = games_pred.apply(
+    lambda row: mean_cluster_effect[int(row['favored_cluster']), int(row['underdog_cluster'])], axis=1)
+games_pred['elo_surface_diff_x_cluster_score_diff'] = games_pred['elo_surface_diff'] * games_pred['cluster_score']
+
+feature_cols = [
+    'elo_surface_diff', 
+    'cluster_score', 
+    'elo_surface_diff_x_cluster_score_diff'
+]
+X_pred = games_pred[feature_cols].values
+y_pred = games_pred['favored_win'].values
+
+# Fit logistic regression
+lr_model = LogisticRegression()
+lr_model.fit(X_pred, y_pred)
+y_pred_proba = lr_model.predict_proba(X_pred)[:, 1]
+
+# Evaluate
+print(f'Log Loss (cluster+elo): {log_loss(y_pred, y_pred_proba):.4f}')
+print(f'Log Loss (elo only): {log_loss(y_pred, elo_probability(games_pred["favored_elo_surface"], games_pred["underdog_elo_surface"])):.4f}')
+
+
+#<------------------------------------------------------------------------------------------------------
 # Undirected Graph
 import networkx as nx
 from community import community_louvain
@@ -598,44 +722,7 @@ plt.show()
 
 
 
-#<----------------------------------------------------------------------------------------------------
-import scipy.cluster.hierarchy as sch
-from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import squareform
 
-linked = sch.linkage(squareform(distance_matrix), method='ward')  # También puedes usar 'ward', 'complete', etc.
-plt.figure(figsize=(8, 5))
-dendro = sch.dendrogram(linked, labels=distance_matrix.index.tolist())
-plt.title("Clustering jerárquico de jugadores por estilo")
-plt.ylabel("Distancia")
-plt.tight_layout()
-plt.show()
-
-#clusters = fcluster(linked, t = 7, criterion='distance')
-
-hier_num_clusters = 4 # or set manually
-hier_clusters = fcluster(linked, hier_num_clusters, criterion='maxclust')
-hier_cluster_df = pd.DataFrame({'player': distance_matrix.index, 'hier_cluster': hier_clusters}).set_index('player').sort_values('hier_cluster')
-hier_cluster_df['hier_cluster'] -= 1
-hier_cluster_df
-print(hier_cluster_df)
-
-cluster_matchups = np.zeros((hier_num_clusters, hier_num_clusters))
-counts = np.zeros((hier_num_clusters, hier_num_clusters))
-for i, player_a in enumerate(players):
-    for j, player_b in enumerate(players):
-        if games_mask[i, j]:
-            c_p = hier_cluster_df.loc[player_a].values[0]
-            c_q = hier_cluster_df.loc[player_b].values[0]
-            cluster_matchups[c_p, c_q] += score_df.loc[player_a, player_b]
-            counts[c_p, c_q] += 1
-
-mean_cluster_effect = cluster_matchups / np.maximum(counts, 1)
-sns.heatmap(mean_cluster_effect, annot=True, fmt=".2f", cmap='coolwarm')
-plt.title("Cluster-vs-Cluster Style Exploitation Matrix")
-plt.xlabel("Defender Style Cluster")
-plt.ylabel("Attacker Style Cluster")
-plt.show()
 
 #<-----------------------------------------------------------------------------------------------------
 games['favored_off_cluster'] = games['favored'].map(P_cluster_df.set_index('player')['attacker_cluster']).astype('Int64')

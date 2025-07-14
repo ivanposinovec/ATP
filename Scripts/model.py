@@ -20,7 +20,7 @@ from sklearn.model_selection import KFold
 from skopt import BayesSearchCV
 from skopt import gp_minimize
 from skopt.space import Integer, Real
-from bayes_opt import BayesianOptimization
+#from bayes_opt import BayesianOptimization
 from sklearn.preprocessing import OneHotEncoder
 
 pd.set_option('display.max_rows',600)
@@ -63,9 +63,12 @@ games['home_match'] = np.where((games['favored_ioc'] == games['tourney_ioc']) & 
                             np.where((games['favored_ioc'] == games['tourney_ioc']) & (games['underdog_ioc'] != games['tourney_ioc']), 2,
                                     np.where((games['favored_ioc'] != games['tourney_ioc']) & (games['underdog_ioc'] == games['tourney_ioc']), 1, 0)))
 
+games['favored_prob_elo'] = 1 / (1 + 10 ** (-games['elo_diff'] / 400))
+games['favored_prob_elo_surface'] = 1 / (1 + 10 ** (-games['elo_surface_diff'] / 400))
 
 # Feature selection
-features_names = ['week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff', 'surface_speed'] + features_to_keep
+features_names = ['week',  'elo_diff', 'elo_surface_diff',  'log_elo_diff', 'log_elo_surface_diff', 'age_diff', 'height_diff', 'surface_speed',
+                'favored_prob_elo', 'favored_prob_elo_surface'] + features_to_keep
 features_names = [feature for feature in features_names if feature not in ['inactivity_diff', 'inactive_match']]
 games[features_names] = games[features_names].replace([np.inf, -np.inf], np.nan)
 games = games.dropna(subset = ['favored_odds', 'underdog_odds', 'hand_match', 'entry_match'] + features_names).reset_index(drop = True)
@@ -79,6 +82,7 @@ dummies = pd.DataFrame(enc.fit_transform(games[['tourney_series', 'surface', 'su
 dummies_features = dummies.columns.tolist()
 games = pd.concat([games, dummies], axis=1)
 
+"""
 # Interaction terms
 # Create interaction terms between selected features
 interaction_pairs = [
@@ -106,6 +110,7 @@ for f1, f2 in interaction_pairs:
     col_name = f"{f1}_x_{f2}"
     games[col_name] = games[f1] * games[f2]
     features_names.append(col_name)
+"""
 
 # Drop uncertain values
 uncertainty_threshold = games['uncertainty'].quantile(0.95)
@@ -285,7 +290,6 @@ for fold_number in range(0, 6):
                                                 'test_2st_log_loss':log_loss(odds_test['favored_win'], odds_test['favored_prob_2st']),
                                                 'train_predictions':odds_train_val, 'test_predictions':odds_test}
 
-6608
 #--------------------------------------------------------------------------- XGBoost ---------------------------------------------------------------------------#
 models = {}
 for fold_number in range(0, 6):
@@ -368,7 +372,7 @@ for fold_number in range(0, 6):
                             subsample = subsample,
                             colsample_bytree = colsample,
                             random_state=42, eval_metric='logloss')
-
+        
         model.fit(X_train_scaled, y_train)
         y_pred = model.predict_proba(X_val_scaled)
         return log_loss(y_val, y_pred)
@@ -442,7 +446,7 @@ for model in models:
 
 # Betting
 bets = pd.concat([models[str(year)]['predictions']['test_predictions'] for year in range(2020, 2026)], ignore_index=True)
-model = 'xgb'
+model = 'enet'
 odds_str = 'mean_opening'
 expected_return_favored = (bets[f'favored_{odds_str}_odds']-1)*bets[f'favored_prob_{model}'] - 1*(1-bets[f'favored_prob_{model}'])
 expected_return_underdog = (bets[f'underdog_{odds_str}_odds']-1)*bets[f'underdog_prob_{model}'] - 1*(1-bets[f'underdog_prob_{model}'])
@@ -474,10 +478,15 @@ predictions = {'bets':bets,
             'other_stats':{'total':total_bets_kelly, 'placed':bets_placed_kelly, "wins":wins_kelly, 'hit_rate':hit_rate_kelly}}
 print(predictions)
 
-bets.sort_values('expected_return', ascending=False)[['favored', 'underdog', 'tourney_name', 'season', 'favored_win', 'favored_prob_implied', 'underdog_prob_implied', 'favored_mean_closing_odds', 'underdog_mean_closing_odds', 'bet', 'probs', 'expected_return']].head(10)
+bets.sort_values('expected_return', ascending=False)[['favored', 'underdog', 'favored_prob_implied', 'underdog_prob_implied', 'bet', 'odds', 'expected_return', 'result_kelly_fixed']].head(10)
+bets.loc[6608]
 
-games[(games['favored'] == 'Bradley Klahn') & (games['underdog'] == 'Felipe Meligeni Alves')][['favored', 'underdog', 'favored_win', 'favored_odds', 'underdog_odds', 'favored_elo', 'underdog_elo', 'favored_elo_surface', 'underdog_elo_surface']]
+games[(games['favored']=='Bradley Klahn') & (games['underdog']=='Felipe Meligeni Alves')]
+games.loc[42408][features]
 
+
+full_games = pd.read_csv('games.csv')
+full_games[((full_games['favored'] == 'Bradley Klahn') | (full_games['underdog'] == 'Bradley Klahn')) & (full_games['surface'] == 'Clay')][['favored', 'underdog', 'season', 'tourney_name', 'surface', 'favored_elo', 'underdog_elo', 'favored_elo_surface', 'underdog_elo_surface']]
 
 # Calculate return by odds buckets
 bins = [1, 1.5, 2, 3, 5, 10, 30]
@@ -487,6 +496,32 @@ bets['odds_bucket'] = pd.cut(bets['odds'], bins=bins, labels=labels, right=True)
 bucket_stats = []
 for bucket in labels:
     bucket_bets = bets[bets['odds_bucket'] == bucket]
+    placed = (bucket_bets['bet'] != 'no_bet').sum()
+    wins = (pd.to_numeric(bucket_bets['result_kelly_fixed'], errors='coerce') > 0).sum()
+    earnings = pd.to_numeric(bucket_bets['result_kelly_fixed'], errors='coerce').fillna(0).sum()
+    spent = bucket_bets['kelly_fraction_fixed'].sum()
+    roi = earnings / spent if spent > 0 else 0
+    bucket_stats.append({
+        'odds_bucket': bucket,
+        'bets_placed': placed,
+        'wins': wins,
+        'hit_rate': wins / placed if placed > 0 else 0,
+        'earnings': earnings,
+        'spent': spent,
+        'roi': roi
+    })
+print(pd.DataFrame(bucket_stats))
+
+# Expected return buckets
+bins = [0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1]
+labels = ['0-0.1', '0.1-0.2', '0.2-0.3', '0.3-0.4', '0.4-0.6', '0.6-0.8', '+1']
+bets['expected_return_bucket'] = pd.cut(bets['expected_return'], bins=bins, labels=labels, right=True)
+bets[['expected_return', 'expected_return_bucket']]
+
+
+bucket_stats = []
+for bucket in labels:
+    bucket_bets = bets[bets['expected_return_bucket'] == bucket]
     placed = (bucket_bets['bet'] != 'no_bet').sum()
     wins = (pd.to_numeric(bucket_bets['result_kelly_fixed'], errors='coerce') > 0).sum()
     earnings = pd.to_numeric(bucket_bets['result_kelly_fixed'], errors='coerce').fillna(0).sum()
